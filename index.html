@@ -174,7 +174,8 @@ input:focus, select:focus, textarea:focus { border-color: #3b82f6; }
 .info-box { background: #0a1220; border: 1px solid #1e2d4a; border-radius: 7px; padding: 10px 14px; font-size: 11px; color: #4b5563; line-height: 1.65; margin-bottom: 14px; }
 .adv-only, .db-search-row.adv-only { display: none !important; }
 body.mode-advanced .adv-only { display: flex !important; }
-body.mode-advanced .info-box.adv-only { display: block !important; }
+body.mode-advanced .info-box.adv-only,
+body.mode-advanced .adv-block { display: block !important; }
 .info-box b { color: #60a5fa; }
 .empty { text-align: center; padding: 70px 0; color: #4b5563; }
 .empty-icon { font-size: 44px; margin-bottom: 14px; }
@@ -571,6 +572,27 @@ body.mode-advanced .info-box.adv-only { display: block !important; }
           <input type="text" id="query-input-secondary" style="width:100%;box-sizing:border-box;padding:13px 38px 13px 16px;font-size:14px;border-radius:8px;color:#cbd5e1" placeholder="auto-derived from primary on search &mdash; edit freely, then it stays as you set it" onkeydown="if(event.key==='Enter') doSearch()" oninput="secondaryEdited=true;var b=document.getElementById('query-clear-btn2');b.style.display=this.value?'flex':'none';" />
           <button id="query-clear-btn2" onclick="document.getElementById('query-input-secondary').value='';secondaryEdited=true;this.style.display='none';document.getElementById('query-input-secondary').focus();" title="Clear" style="display:none;position:absolute;right:10px;top:50%;transform:translateY(-50%);width:18px;height:18px;border-radius:50%;border:none;background:#374151;color:#9ca3af;font-size:11px;cursor:pointer;align-items:center;justify-content:center;line-height:1;">&#10005;</button>
         </div>
+      </div>
+
+      <!-- ══ PUBMED SET HISTORY (build & combine numbered sets) ══ -->
+      <div class="adv-only adv-block" style="margin-top:16px;background:#0a0f1c;border:1px solid #1e293b;border-radius:10px;padding:13px 15px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+          <span style="font-size:12px;font-weight:600;color:#e2e8f0">&#129516; PubMed search history (numbered sets)</span>
+          <button id="add-set-btn" onclick="addPubmedSet()" title="Run the primary (MeSH) query as a new numbered set on PubMed's History server" style="margin-left:auto;font-size:11px;padding:5px 11px;border-radius:6px;border:1px solid #1e3a5f;background:#0a1530;color:#7dd3fc;cursor:pointer;font-weight:600;white-space:nowrap">&#43; Add to history</button>
+          <button onclick="clearPubmedSets()" title="Clear all sets (also clears the PubMed session)" style="font-size:11px;padding:5px 9px;border-radius:6px;border:1px solid #334155;background:#0d1220;color:#94a3b8;cursor:pointer;white-space:nowrap">Clear</button>
+        </div>
+        <div style="font-size:9.5px;color:#64748b;font-family:'IBM Plex Mono',monospace;margin-bottom:10px">authentic NCBI History server &middot; counts are uncapped, server-side &middot; PubMed only</div>
+        <div id="set-history-panel" style="margin-bottom:11px"></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+          <span class="sec-label" style="margin:0">Combine sets</span>
+          <span style="font-size:10px;color:#64748b;font-family:'IBM Plex Mono',monospace">e.g. (#1 OR #2) AND #3 NOT #4</span>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <input type="text" id="combo-input" placeholder="#1 AND #2" oninput="document.getElementById('combo-preview').innerHTML='';" onkeydown="if(event.key==='Enter') previewCombo()" style="flex:1;min-width:160px;box-sizing:border-box;padding:10px 13px;font-size:13px;font-family:'IBM Plex Mono',monospace;border-radius:7px;border:1px solid #334155;background:#0d1220;color:#e2e8f0" />
+          <button onclick="previewCombo()" title="Resolve the combination on PubMed and show the count (no retrieval yet)" style="font-size:12px;padding:9px 14px;border-radius:7px;border:1px solid #334155;background:#0d1220;color:#cbd5e1;cursor:pointer;font-weight:600;white-space:nowrap">Preview count</button>
+          <button onclick="executeCombo()" title="Run the combined strategy across all selected databases" style="font-size:12px;padding:9px 14px;border-radius:7px;border:none;background:#3b82f6;color:#fff;cursor:pointer;font-weight:600;white-space:nowrap">&#8594; Execute &amp; fan out</button>
+        </div>
+        <div id="combo-preview" style="margin-top:9px;min-height:8px"></div>
       </div>
 
       <div class="grid4" style="margin-top:12px">
@@ -1151,6 +1173,13 @@ var lastSearchProvenance = null;      // PRISMA-style identification record of l
 var expandedCards = new Set();
 var searchHistory = [];
 var savedAlerts = [];
+
+// ── PubMed set-history (Advanced mode) ──
+// Session-scoped numbered sets built on NCBI's History server. Each set stores
+// the query string (for fan-out to other DBs) plus NCBI WebEnv/queryKey + count.
+var pubmedSets = {};        // { 1: {query, count, queryKey, webEnv, label}, ... }
+var pubmedSetCounter = 0;   // last assigned set number
+var pubmedWebEnv = null;    // shared WebEnv threaded through the session
 
 // Scan criteria — what the document scanner checks
 var scanCriteria = [
@@ -2761,6 +2790,111 @@ function fetchWithFallback(url) {
   });
 }
 
+// ══════════════════════════════════════════════
+// PUBMED SET HISTORY (Advanced mode) — NCBI History server
+// Build numbered sets (#1, #2…) on NCBI's History server, view live counts,
+// then combine with full boolean nesting "(#1 OR #2) AND #3 NOT #4" resolved
+// server-side by NCBI. Executing a combination fans the reconstructed query
+// out to the other databases (Europe PMC/Cochrane + keyword-derived NL engines).
+// ══════════════════════════════════════════════
+
+// Tokenize a set expression into #N refs, operators, and parens.
+function tokenizeSetExpr(expr) {
+  var tokens = [];
+  var re = /\s*(\(|\)|#\d+|\bAND\b|\bOR\b|\bNOT\b)\s*/gi;
+  var lastIndex = 0, m;
+  while ((m = re.exec(expr)) !== null) {
+    var between = expr.slice(lastIndex, m.index).trim();
+    if (between) return { error: 'Unexpected text: "' + between + '"' };
+    var tok = m[1];
+    if (tok !== '(' && tok !== ')' && tok[0] !== '#') tok = tok.toUpperCase();
+    tokens.push(tok);
+    lastIndex = re.lastIndex;
+  }
+  var tail = expr.slice(lastIndex).trim();
+  if (tail) return { error: 'Unexpected text: "' + tail + '"' };
+  if (tokens.length === 0) return { error: 'Empty expression' };
+  return { tokens: tokens };
+}
+
+// Validate parens balance, operator/operand ordering, and that all #N exist.
+function validateSetExpr(tokens) {
+  var depth = 0;
+  for (var i = 0; i < tokens.length; i++) {
+    var t = tokens[i];
+    if (t === '(') depth++;
+    else if (t === ')') { depth--; if (depth < 0) return 'Unbalanced parentheses'; }
+    else if (t[0] === '#') {
+      var n = parseInt(t.slice(1), 10);
+      if (!pubmedSets[n]) return 'Set ' + t + ' does not exist';
+    }
+  }
+  if (depth !== 0) return 'Unbalanced parentheses';
+  var seq = tokens.filter(function(t){ return t !== '(' && t !== ')'; });
+  var expectOperand = true;
+  for (var j = 0; j < seq.length; j++) {
+    var isOp = (seq[j] === 'AND' || seq[j] === 'OR' || seq[j] === 'NOT');
+    if (expectOperand && isOp) return 'Operator "' + seq[j] + '" where a set reference was expected';
+    if (!expectOperand && !isOp) return 'Missing operator before ' + seq[j];
+    expectOperand = !expectOperand;
+  }
+  if (expectOperand) return 'Expression ends with an operator';
+  return null;
+}
+
+// Reconstruct a flat PubMed query STRING (for fan-out): #N -> "(storedQuery)".
+function reconstructQueryString(tokens) {
+  return tokens.map(function(t) {
+    if (t[0] === '#') { var n = parseInt(t.slice(1), 10); return '(' + pubmedSets[n].query + ')'; }
+    return t;
+  }).join(' ').replace(/\(\s+/g, '(').replace(/\s+\)/g, ')').replace(/\s+/g, ' ').trim();
+}
+
+// Reconstruct the NCBI History term: #N -> %23N (URL-encoded '#').
+function reconstructHistoryTerm(tokens) {
+  return tokens.map(function(t) {
+    if (t[0] === '#') return '%23' + t.slice(1);
+    return t;
+  }).join(' ').replace(/\(\s+/g, '(').replace(/\s+\)/g, ')').replace(/\s+/g, ' ').trim();
+}
+
+// Run a primary-bar query against PubMed's History server, creating a new set.
+// Returns a promise resolving to the new set object (or rejecting on error).
+function createPubmedSet(query) {
+  var url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&usehistory=y'
+    + '&term=' + encodeURIComponent(query) + '&retmode=json';
+  if (pubmedWebEnv) url += '&WebEnv=' + encodeURIComponent(pubmedWebEnv);
+  return fetchWithFallback(url).then(function(r){ return r.json(); }).then(function(d){
+    var res = d.esearchresult || {};
+    if (!res.webenv || !res.querykey) throw new Error('No History data returned (check query syntax)');
+    pubmedWebEnv = res.webenv; // thread the shared WebEnv through the session
+    pubmedSetCounter += 1;
+    var set = {
+      n: pubmedSetCounter,
+      query: query,
+      count: parseInt(res.count, 10) || 0,
+      queryKey: res.querykey,
+      webEnv: res.webenv
+    };
+    pubmedSets[pubmedSetCounter] = set;
+    return set;
+  });
+}
+
+// Combine sets server-side via History, returning the live count for the combo.
+// Does NOT fetch records — just resolves the count, so the user can sanity-check
+// before executing the full fan-out.
+function previewPubmedCombo(historyTerm) {
+  var url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&usehistory=y'
+    + '&WebEnv=' + encodeURIComponent(pubmedWebEnv)
+    + '&term=' + historyTerm + '&retmode=json'; // historyTerm already has %23 encoded
+  return fetchWithFallback(url).then(function(r){ return r.json(); }).then(function(d){
+    var res = d.esearchresult || {};
+    return { count: parseInt(res.count, 10) || 0, queryKey: res.querykey, webEnv: res.webenv };
+  });
+}
+
+
 function fetchPubMed(query, maxResults) {
   var searchUrl = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=' + encodeURIComponent(query) + '&retmax=' + maxResults + '&retmode=json';
   return fetchWithFallback(searchUrl).then(function(r) {
@@ -2863,6 +2997,7 @@ function setSearchMode(mode) {
       ? '("Propofol"[Mesh] OR propofol[tiab]) AND ("Postoperative Complications"[Mesh] OR postoperative outcomes[tiab])'
       : '"propofol" AND "postoperative outcomes" AND anaesthesia';
   }
+  if (adv) renderSetHistory();
 }
 
 // Deliberately re-derive the secondary keyword query from the primary MeSH bar.
@@ -2878,7 +3013,107 @@ function rederiveSecondary() {
   showToast('Secondary query re-derived from primary', '#3b82f6');
 }
 
-// PRISMA-style identification panel: shows records identified per source, split
+// ── Set-history UI ──
+
+// "Add to history" — runs the primary bar query as a new numbered PubMed set.
+function addPubmedSet() {
+  var q = document.getElementById('query-input').value.trim();
+  if (!q) { showToast('Enter a primary (MeSH) query first', '#f59e0b'); return; }
+  var btn = document.getElementById('add-set-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Adding\u2026'; }
+  createPubmedSet(q).then(function(set){
+    renderSetHistory();
+    showToast('Added set #' + set.n + ' \u2014 ' + set.count.toLocaleString() + ' PubMed results', '#22c55e');
+  }).catch(function(e){
+    showToast('Could not add set: ' + e.message, '#ef4444');
+  }).then(function(){
+    if (btn) { btn.disabled = false; btn.innerHTML = '&#43; Add to history'; }
+  });
+}
+
+function removePubmedSet(n) {
+  delete pubmedSets[n];
+  renderSetHistory();
+}
+
+function clearPubmedSets() {
+  pubmedSets = {}; pubmedSetCounter = 0; pubmedWebEnv = null;
+  renderSetHistory();
+  var pc = document.getElementById('combo-preview'); if (pc) pc.innerHTML = '';
+  showToast('Search history cleared', '#3b82f6');
+}
+
+// Insert "#N" into the combination box when a set row is clicked.
+function insertSetRef(n) {
+  var box = document.getElementById('combo-input');
+  if (!box) return;
+  var cur = box.value;
+  // append with a space; if box ends with #N or ), suggest AND
+  if (cur && !/[\s(]$/.test(cur)) cur += ' AND ';
+  box.value = cur + '#' + n + ' ';
+  box.focus();
+}
+
+function renderSetHistory() {
+  var panel = document.getElementById('set-history-panel');
+  if (!panel) return;
+  var nums = Object.keys(pubmedSets).map(Number).sort(function(a,b){ return a-b; });
+  if (nums.length === 0) {
+    panel.innerHTML = '<div style="font-size:11px;color:#64748b;padding:8px 2px">No sets yet. Type a MeSH query in the primary bar and click <b>Add to history</b> to create set #1.</div>';
+    return;
+  }
+  var rows = nums.map(function(n){
+    var s = pubmedSets[n];
+    return '<div style="display:flex;align-items:center;gap:10px;padding:7px 9px;border:1px solid #1e293b;border-radius:7px;margin-bottom:5px;background:#0d1220">' +
+      '<button onclick="insertSetRef(' + n + ')" title="Insert #' + n + ' into the combination box" style="flex-shrink:0;font-family:\'IBM Plex Mono\',monospace;font-size:12px;font-weight:700;color:#7dd3fc;background:#0a1530;border:1px solid #1e3a5f;border-radius:5px;padding:3px 8px;cursor:pointer">#' + n + '</button>' +
+      '<span style="flex:1;min-width:0;font-size:11px;color:#cbd5e1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(s.query) + '">' + esc(s.query) + '</span>' +
+      '<span style="flex-shrink:0;font-size:11px;font-weight:600;color:#4ade80;font-variant-numeric:tabular-nums">' + s.count.toLocaleString() + '</span>' +
+      '<button onclick="removePubmedSet(' + n + ')" title="Remove set" style="flex-shrink:0;width:18px;height:18px;border-radius:50%;border:none;background:#374151;color:#9ca3af;font-size:11px;cursor:pointer;line-height:1">&#10005;</button>' +
+    '</div>';
+  }).join('');
+  panel.innerHTML = rows;
+}
+
+// Preview the combination count (server-side via NCBI History), no fan-out yet.
+function previewCombo() {
+  var expr = document.getElementById('combo-input').value.trim();
+  var out = document.getElementById('combo-preview');
+  if (!expr) { if (out) out.innerHTML = ''; return; }
+  var tk = tokenizeSetExpr(expr);
+  if (tk.error) { out.innerHTML = '<span style="color:#f87171;font-size:11px">' + esc(tk.error) + '</span>'; return; }
+  var err = validateSetExpr(tk.tokens);
+  if (err) { out.innerHTML = '<span style="color:#f87171;font-size:11px">' + esc(err) + '</span>'; return; }
+  if (!pubmedWebEnv) { out.innerHTML = '<span style="color:#f87171;font-size:11px">No active PubMed session \u2014 add a set first</span>'; return; }
+  out.innerHTML = '<span style="color:#94a3b8;font-size:11px"><span class="spinner"></span>Resolving on PubMed\u2026</span>';
+  var historyTerm = reconstructHistoryTerm(tk.tokens);
+  previewPubmedCombo(historyTerm).then(function(res){
+    out.innerHTML = '<span style="font-size:11px;color:#cbd5e1">PubMed combined result: <b style="color:#4ade80">' + res.count.toLocaleString() + '</b> records. ' +
+      'Click <b>Execute &amp; fan out</b> to retrieve and search the other databases.</span>';
+  }).catch(function(e){
+    out.innerHTML = '<span style="color:#f87171;font-size:11px">Preview failed: ' + esc(e.message) + '</span>';
+  });
+}
+
+// Execute the combination: reconstruct the full query string and run a normal
+// fan-out search across ALL selected databases (PubMed gets the real string too).
+function executeCombo() {
+  var expr = document.getElementById('combo-input').value.trim();
+  if (!expr) { showToast('Enter a combination like #1 AND #2', '#f59e0b'); return; }
+  var tk = tokenizeSetExpr(expr);
+  if (tk.error) { showToast(tk.error, '#ef4444'); return; }
+  var err = validateSetExpr(tk.tokens);
+  if (err) { showToast(err, '#ef4444'); return; }
+  var combinedQuery = reconstructQueryString(tk.tokens);
+  // Push the reconstructed query into the primary bar and run the standard search,
+  // which already fans out to Europe PMC/Cochrane (primary) + keyword NL engines.
+  document.getElementById('query-input').value = combinedQuery;
+  document.getElementById('query-clear-btn').style.display = 'flex';
+  // force a fresh secondary derivation from the combined query
+  secondaryEdited = false;
+  showToast('Executing ' + esc(expr) + ' across all databases\u2026', '#3b82f6');
+  doSearch();
+}
+
 // into the primary (MeSH) and secondary (keyword) streams, plus dedup and unique.
 function renderProvenancePanel(prov) {
   var el = document.getElementById('provenance-panel');
