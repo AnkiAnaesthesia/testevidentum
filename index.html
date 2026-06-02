@@ -4251,27 +4251,11 @@ function fetchScopus(query, maxResults, dateFrom, dateTo) {
   // We pass the API key as query param and insttoken in header via proxy
   var url = 'https://api.elsevier.com/content/search/scopus?' + params.toString() + '&apiKey=' + encodeURIComponent(scopusApiKey);
 
-  var headers = { 'Accept': 'application/json' };
-  if (scopusInstToken) headers['X-ELS-Insttoken'] = scopusInstToken;
+  // Move insttoken to query param — custom headers don't survive CORS proxies.
+  // fetchWithFallback handles direct-first with a hardened proxy chain fallback.
+  if (scopusInstToken) url += '&insttoken=' + encodeURIComponent(scopusInstToken);
 
-  // Try direct first (works on-campus), then via CORS proxy
-  function tryDirect() {
-    return fetch(url, { headers: headers }).then(function(r) {
-      if (!r.ok) throw new Error('Scopus ' + r.status);
-      return r.json();
-    });
-  }
-
-  function tryProxy() {
-    // Pass headers via URL params for proxy compatibility
-    var proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url + (scopusInstToken ? '&insttoken=' + encodeURIComponent(scopusInstToken) : ''));
-    return fetch(proxyUrl).then(function(r) {
-      if (!r.ok) throw new Error('Proxy ' + r.status);
-      return r.json();
-    });
-  }
-
-  return tryDirect().catch(function() { return tryProxy(); })
+  return fetchWithFallback(url).then(function(r) { return r.json(); })
     .then(function(data) {
       var entries = (data['search-results'] && data['search-results']['entry']) || [];
       return entries.filter(function(e) {
