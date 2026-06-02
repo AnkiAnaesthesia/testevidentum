@@ -1180,6 +1180,7 @@ var savedAlerts = [];
 var pubmedSets = {};        // { 1: {query, count, queryKey, webEnv, label}, ... }
 var pubmedSetCounter = 0;   // last assigned set number
 var pubmedWebEnv = null;    // shared WebEnv threaded through the session
+var _comboHistoryCtx = null; // set by executeCombo: {queryKey, webEnv} — used once by fetchPubMed then cleared
 
 // Scan criteria — what the document scanner checks
 var scanCriteria = [
@@ -2896,7 +2897,19 @@ function previewPubmedCombo(historyTerm) {
 
 
 function fetchPubMed(query, maxResults) {
-  var searchUrl = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=' + encodeURIComponent(query) + '&retmax=' + maxResults + '&retmode=json';
+  // If executeCombo resolved this search via the NCBI History server, use the
+  // pre-resolved queryKey/WebEnv to fetch results directly (one-shot, then cleared).
+  var histCtx = _comboHistoryCtx;
+  _comboHistoryCtx = null;
+  var searchUrl;
+  if (histCtx && histCtx.queryKey && histCtx.webEnv) {
+    searchUrl = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed'
+      + '&query_key=' + encodeURIComponent(histCtx.queryKey)
+      + '&WebEnv=' + encodeURIComponent(histCtx.webEnv)
+      + '&retmax=' + maxResults + '&retmode=json';
+  } else {
+    searchUrl = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=' + encodeURIComponent(query) + '&retmax=' + maxResults + '&retmode=json';
+  }
   return fetchWithFallback(searchUrl).then(function(r) {
     return r.json();
   }).then(function(sd) {
@@ -3104,14 +3117,26 @@ function executeCombo() {
   var err = validateSetExpr(tk.tokens);
   if (err) { showToast(err, '#ef4444'); return; }
   var combinedQuery = reconstructQueryString(tk.tokens);
-  // Push the reconstructed query into the primary bar and run the standard search,
-  // which already fans out to Europe PMC/Cochrane (primary) + keyword NL engines.
+  var historyTerm = reconstructHistoryTerm(tk.tokens);
+  // Push the reconstructed query into the primary bar (drives Europe PMC, Cochrane,
+  // and the keyword secondary derivation for NL engines).
   document.getElementById('query-input').value = combinedQuery;
   document.getElementById('query-clear-btn').style.display = 'flex';
-  // force a fresh secondary derivation from the combined query
   secondaryEdited = false;
-  showToast('Executing ' + esc(expr) + ' across all databases\u2026', '#3b82f6');
-  doSearch();
+  showToast('Resolving ' + esc(expr) + ' on NCBI History server\u2026', '#3b82f6');
+  // Resolve the combo server-side first so we get a real queryKey/WebEnv.
+  // PubMed fetch will use this directly instead of re-parsing set references.
+  previewPubmedCombo(historyTerm).then(function(res) {
+    if (res.queryKey && res.webEnv) {
+      _comboHistoryCtx = { queryKey: res.queryKey, webEnv: res.webEnv };
+    }
+    showToast('Executing ' + esc(expr) + ' across all databases\u2026', '#3b82f6');
+    doSearch();
+  }).catch(function(e) {
+    console.warn('History combo resolve failed, falling back to expanded query:', e.message);
+    showToast('Executing ' + esc(expr) + ' across all databases\u2026', '#3b82f6');
+    doSearch();
+  });
 }
 
 // into the primary (MeSH) and secondary (keyword) streams, plus dedup and unique.
