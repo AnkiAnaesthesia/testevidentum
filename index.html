@@ -5714,7 +5714,7 @@ function updateProjPaperNotes(projectId, pmid, val) {
 // ── Per-paper agent analysis within a project ─────────────────────────────────
 async function runProjPaperAgent(projectId, pmid) {
   if (!hasValidKey()) {
-    showToast('⚠️ OpenAI API key required — set it in Settings', '#f59e0b');
+    showToast('⚠️ ' + (aiProvider === 'anthropic' ? 'Anthropic' : 'OpenAI') + ' API key required — set it in Settings', '#f59e0b');
     return;
   }
   var papers = projectPapers[projectId];
@@ -6423,7 +6423,7 @@ var agentStats = { done: 0, failed: 0, skipped: 0, total: 0 };
 
 function startAgentAnalysis() {
   if (!hasValidKey()) {
-    showToast('⚠️ Please enter your OpenAI API key in Settings (⚙ top right) first.', '#f59e0b');
+    showToast('⚠️ Please enter your ' + (aiProvider === 'anthropic' ? 'Anthropic' : 'OpenAI') + ' API key in Settings (⚙ top right) first.', '#f59e0b');
     return;
   }
   if (!papers.length) return;
@@ -7341,7 +7341,7 @@ function showAgentSummary() {
     '<div style="color:#1e2d4a">|</div>' +
     '<div class="agent-sum-item"><div class="agent-sum-num" style="color:#64748b">' + agentStats.skipped + '</div><div style="font-size:11px">skipped</div></div>' +
     (agentStats.retracted ? '<div style="color:#1e2d4a">|</div><div class="agent-sum-item"><div class="agent-sum-num" style="color:#ef4444">' + agentStats.retracted + '</div><div style="font-size:11px">⚠️ retracted</div></div>' : '') +
-    '<div style="font-size:11px;color:#4b5563;margin-left:auto">Used gpt-5 · <a href="https://platform.openai.com/usage" target="_blank" style="color:#64748b">View usage →</a></div>';
+    '<div style="font-size:11px;color:#4b5563;margin-left:auto">Used ' + activeModel() + ' · <a href="' + (aiProvider === 'anthropic' ? 'https://console.anthropic.com/usage' : 'https://platform.openai.com/usage') + '" target="_blank" style="color:#64748b">View usage →</a></div>';
 }
 
 // ══════════════════════════════════════════════
