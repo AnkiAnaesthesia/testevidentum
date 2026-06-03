@@ -3868,9 +3868,22 @@ function renderPapers() {
 }
 
 function toggleExpand(pmid) {
+  var opening = !expandedCards.has(pmid);
   if (expandedCards.has(pmid)) expandedCards.delete(pmid); else expandedCards.add(pmid);
   document.getElementById('body-'+pmid).classList.toggle('open');
   document.getElementById('card-'+pmid).querySelector('.expand-btn').innerHTML = expandedCards.has(pmid) ? '&#9650; Less' : '&#9660; Full criteria &amp; checklists';
+
+  // Option C: lazily fetch + scan the PDF on first expand, if a free PDF was
+  // found but not yet scanned. One paper at a time — no bulk memory pressure.
+  if (opening) {
+    var p = papers.find(function(x){ return x.pmid === pmid; });
+    if (p && p.fullTextUrl &&
+        p.scanDepth !== 'full' && p.scanDepth !== 'pdf' &&
+        p.scanDepth !== 'pdf-blocked' && p.scanDepth !== 'agent' &&
+        p.scanDepth !== 'agent-processing') {
+      scanPaperFromPDF(p);
+    }
+  }
 }
 
 function toggleManualTag(pmid, tag) {
@@ -4814,9 +4827,10 @@ function fetchFullTextLinks() {
       if (!el) return;
       if (result) {
         el.innerHTML = '<a class="pdf-btn" href="' + result.url + '" target="_blank">&#128196; Free PDF <span style="font-size:9px;opacity:0.7">(' + result.source + ')</span></a>';
-        if (p.scanDepth !== 'full' && p.scanDepth !== 'pdf') {
-          scanPaperFromPDF(p);
-        }
+        // Option C: do NOT eagerly fetch/parse the PDF here — that caused tab
+        // crashes on large searches (100+ concurrent PDF.js loads in memory).
+        // Heavy extraction is now deferred to (a) agent run, or (b) card expand.
+        // We only mark that a free PDF is available; depth stays 'abstract'.
       } else {
         // Definitively no free PDF — update depth badge and checklist pill
         p.scanDepth = 'no-pdf';
@@ -4841,28 +4855,15 @@ function fetchFullTextLinks() {
   });
 }
 
-// Safety-net: re-check any papers that resolved a URL but weren't scanned
+// Option C: bulk PDF scanning on search completion is intentionally disabled.
+// Eagerly parsing every PDF crashed the tab on large result sets. PDF text is
+// now fetched lazily — by the agent when it analyses a paper, or on card expand.
+// This just clears the in-progress flag once link lookups have settled.
 function fetchAndScanPDFs() {
   setTimeout(function() {
-    var toScan = papers.filter(function(p) {
-      return p.fullTextUrl && p.scanDepth !== 'full' && p.scanDepth !== 'pdf' && p.scanDepth !== 'pdf-blocked';
-    });
-    if (!toScan.length) {
-      searchInProgress = false;
-      updateKeyBanner();
-      return;
-    }
-    var completed = 0;
-    toScan.forEach(function(p) {
-      Promise.resolve(scanPaperFromPDF(p)).catch(function(){}).then(function() {
-        completed++;
-        if (completed >= toScan.length) {
-          searchInProgress = false;
-          updateKeyBanner();
-        }
-      });
-    });
-  }, 10000);
+    searchInProgress = false;
+    updateKeyBanner();
+  }, 2000);
 }
 
 // ══════════════════════════════════════════════
