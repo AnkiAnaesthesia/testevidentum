@@ -3877,7 +3877,7 @@ function toggleExpand(pmid) {
   // found but not yet scanned. One paper at a time — no bulk memory pressure.
   if (opening) {
     var p = papers.find(function(x){ return x.pmid === pmid; });
-    if (p && p.fullTextUrl &&
+    if (p && p.fullTextUrl && !p._pdfScanning &&
         p.scanDepth !== 'full' && p.scanDepth !== 'pdf' &&
         p.scanDepth !== 'pdf-blocked' && p.scanDepth !== 'agent' &&
         p.scanDepth !== 'agent-processing') {
@@ -4663,6 +4663,13 @@ function extractPmcIdFromUrl(url) {
 // Detects PMC links and uses the reliable XML route for those
 function scanPaperFromPDF(p) {
   if (!p.fullTextUrl) return;
+  // Re-entrancy guard: never run two scans for the same paper concurrently.
+  // (Rapid card expand/collapse, or agent + manual expand racing, could otherwise
+  //  launch duplicate PDF.js loads — the memory pressure Option C exists to avoid.)
+  if (p._pdfScanning) return;
+  p._pdfScanning = true;
+  var clearGuard = function() { p._pdfScanning = false; };
+
   var db = document.getElementById('db-' + p.pmid);
 
   // ── PMC URL? Use the XML full-text route which is CORS-safe ──
@@ -4676,7 +4683,7 @@ function scanPaperFromPDF(p) {
         return;
       }
       applyFullText(p, fullText, 'full', db);
-    });
+    }).catch(function(){ setPdfBlocked(p, db); }).then(clearGuard);
     return;
   }
 
@@ -4689,7 +4696,7 @@ function scanPaperFromPDF(p) {
       return;
     }
     applyFullText(p, text, 'pdf', db);
-  });
+  }).catch(function(){ setPdfBlocked(p, db); }).then(clearGuard);
 }
 
 // Mark a paper as having a PDF that's available but unreadable by the app
@@ -6335,9 +6342,10 @@ function activeModel() {
 
 function setAiProvider(provider) {
   aiProvider = provider;
-  localStorage.setItem('pla_ai_provider', provider);
-  // Activate the stored key for this provider
-  openAIKey = localStorage.getItem(provider === 'anthropic' ? 'pla_anthropic_key' : 'pla_openai_key') || '';
+  try {
+    localStorage.setItem('pla_ai_provider', provider);
+    openAIKey = localStorage.getItem(provider === 'anthropic' ? 'pla_anthropic_key' : 'pla_openai_key') || '';
+  } catch(e) { /* storage disabled (private mode) — provider still set in memory */ }
   updateKeyBanner();
 }
 
@@ -6353,21 +6361,24 @@ function closeSettings() {
 
 function saveOpenAIKey() {
   var val = (document.getElementById('openai-key-input').value || '').trim();
-  localStorage.setItem('pla_openai_key', val);
+  try { localStorage.setItem('pla_openai_key', val); } catch(e) { /* storage disabled */ }
   if (aiProvider === 'openai') { openAIKey = val; updateKeyBanner(); }
 }
 
 function saveAnthropicKey() {
   var val = (document.getElementById('anthropic-key-input').value || '').trim();
-  localStorage.setItem('pla_anthropic_key', val);
+  try { localStorage.setItem('pla_anthropic_key', val); } catch(e) { /* storage disabled */ }
   if (aiProvider === 'anthropic') { openAIKey = val; updateKeyBanner(); }
 }
 
 function loadOpenAIKey() {
   // Load provider preference and both keys
-  aiProvider = localStorage.getItem('pla_ai_provider') || 'openai';
-  var oaiStored = localStorage.getItem('pla_openai_key') || '';
-  var antStored = localStorage.getItem('pla_anthropic_key') || '';
+  var oaiStored = '', antStored = '';
+  try {
+    aiProvider = localStorage.getItem('pla_ai_provider') || 'openai';
+    oaiStored = localStorage.getItem('pla_openai_key') || '';
+    antStored = localStorage.getItem('pla_anthropic_key') || '';
+  } catch(e) { aiProvider = aiProvider || 'openai'; /* storage disabled */ }
   openAIKey = aiProvider === 'anthropic' ? antStored : oaiStored;
   var oaiInp = document.getElementById('openai-key-input');
   var antInp = document.getElementById('anthropic-key-input');
@@ -6917,6 +6928,22 @@ function buildAnalysisPrompts(p, questionOverride) {
 
 // Core function: analyse one paper using OpenAI Responses API
 async function analyseOneWithAgent(p, questionOverride) {
+  // Remember the depth we came in with so a failure can't leave the paper stuck
+  // in 'agent-processing' (which hides its checklist pill and re-run button).
+  var _priorDepth = (p.scanDepth && p.scanDepth !== 'agent-processing') ? p.scanDepth : 'abstract';
+  try {
+    return await _analyseOneWithAgentInner(p, questionOverride);
+  } catch (err) {
+    // If no analysis path succeeded, applyAgentResults never set 'agent'.
+    if (p.scanDepth === 'agent-processing') {
+      p.scanDepth = _priorDepth;
+      refreshCardChecklist(p);
+    }
+    throw err; // let callers handle the toast / failed-counter
+  }
+}
+
+async function _analyseOneWithAgentInner(p, questionOverride) {
   // Mark as processing in UI
   p.scanDepth = 'agent-processing';
   refreshCardChecklist(p);
