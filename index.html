@@ -533,7 +533,7 @@ body.mode-advanced .adv-block { display: block !important; }
         &#128218; <b style="color:#4ade80">Cochrane Reviews</b> searches Europe PMC filtered to the <i>Cochrane Database of Systematic Reviews</i> journal. It is driven by your <b>primary (MeSH)</b> query and merged/deduplicated with other sources.
       </div>
       <div class="info-box" id="scopus-info" style="display:none;border-color:#f59e0b44;color:#fbbf24;background:#1a1200">
-        &#128083; <b style="color:#fbbf24">Scopus</b> requires an Elsevier API key and institutional token. Get a free API key at <a href="https://dev.elsevier.com" target="_blank" style="color:#fbbf24">dev.elsevier.com</a>, then request an InstToken from <a href="/cdn-cgi/l/email-protection#593829302a2c2929362b2d193c352a3c2f303c2b773a3634" style="color:#fbbf24"><span class="__cf_email__" data-cfemail="5534253c262025253a27211530392630233c30277b363a38">[email&#160;protected]</span></a> using your institutional email. Enter both below.
+        &#128083; <b style="color:#fbbf24">Scopus</b> needs an Elsevier API key, entered in Settings (&#9881; top right). Get one free at <a href="https://dev.elsevier.com" target="_blank" style="color:#fbbf24">dev.elsevier.com</a>.<br><br>The key works on your institution's network. Off-campus, you also need an InstToken — request one from <a href="https://service.elsevier.com/app/contact/supporthub/researchproductsapis/" target="_blank" style="color:#fbbf24">Elsevier API Support</a> using your institutional email.<br><br><span style="opacity:0.85">Note: Scopus returns up to <b>25 results</b> per search regardless of the per-database limit, due to Elsevier API restrictions.</span>
       </div>
       <div class="info-box" id="clinicaltrials-info" style="display:none;border-color:#f4725644;color:#fda57d;background:#1f100a">
         &#129514; <b style="color:#fda57d">ClinicalTrials.gov</b> searches the AACT (Aggregate Analysis of ClinicalTrials.gov) public API for <i>registered and unpublished clinical trials</i>. Results include ongoing, completed, and terminated trials that may not yet appear in PubMed. Useful for identifying grey literature and publication bias. No API key required.
@@ -4254,7 +4254,7 @@ function fetchScopus(query, maxResults, dateFrom, dateTo) {
 
   var params = new URLSearchParams({
     query: scopusQ,
-    count: Math.min(maxResults, 200),  // Scopus max per request
+    count: Math.min(maxResults, 25),  // Elsevier API hard-caps usable results at 25/request
     sort: 'relevancy',
     field: 'dc:title,dc:creator,prism:publicationName,prism:coverDate,prism:doi,dc:identifier,dc:description,citedby-count,prism:aggregationType,subtypeDescription,openaccess,eid',
     httpAccept: 'application/json'
