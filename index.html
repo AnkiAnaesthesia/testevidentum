@@ -574,6 +574,19 @@ body.mode-advanced .adv-block { display: block !important; }
         </div>
       </div>
 
+      <!-- ══ PER-DATABASE STRATEGIES (advanced only) ══ -->
+      <div class="adv-only adv-block" style="margin-top:14px;background:#0a0f1c;border:1px solid #1e293b;border-radius:10px;padding:11px 15px">
+        <div style="display:flex;align-items:center;gap:8px;cursor:pointer" onclick="togglePerDbPanel()">
+          <span style="font-size:12px;font-weight:600;color:#e2e8f0">&#128268; Per-database strategies</span>
+          <span id="perdb-summary" style="font-size:10px;color:#64748b;font-family:'IBM Plex Mono',monospace">each database can run its own native-syntax query</span>
+          <span id="perdb-caret" style="margin-left:auto;font-size:11px;color:#7dd3fc">&#9660; show</span>
+        </div>
+        <div id="perdb-body" style="display:none;margin-top:10px">
+          <div style="font-size:10.5px;color:#64748b;margin-bottom:9px;line-height:1.5">Rows auto-derive from the primary / secondary bars and update live. Edit any row to take manual control of that database &mdash; edited rows persist until you re-derive them. Date and study-type filters still apply on top. The executed query per database is recorded in the PRISMA panel.</div>
+          <div id="perdb-rows"></div>
+        </div>
+      </div>
+
       <!-- ══ PUBMED SET HISTORY (build & combine numbered sets) ══ -->
       <div class="adv-only adv-block" style="margin-top:16px;background:#0a0f1c;border:1px solid #1e293b;border-radius:10px;padding:13px 15px">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
@@ -734,6 +747,7 @@ body.mode-advanced .adv-block { display: block !important; }
         <span id="paper-count"></span>
         <div id="controls-right">
           <select id="sort-by" onchange="renderPapers()">
+            <option value="relevance">Sort: Search Relevance</option>
             <option value="score">Sort: Criteria Score &#8595;</option>
             <option value="agent_rank">Sort: Agent Rank &#8595;</option>
             <option value="citations">Sort: Most Cited &#8595;</option>
@@ -2361,6 +2375,9 @@ function toggleDb(id) {
       document.getElementById('db-scopus').checked ? 'block' : 'none';
     document.getElementById('clinicaltrials-info').style.display =
       document.getElementById('db-clinicaltrials').checked ? 'block' : 'none';
+    // Keep per-database strategy rows in sync with enabled chips (if panel open)
+    var perdbBody = document.getElementById('perdb-body');
+    if (perdbBody && perdbBody.style.display !== 'none' && typeof renderPerDbRows === 'function') renderPerDbRows();
   }, 0);
 }
 
@@ -2448,8 +2465,10 @@ function doSearch() {
     pill.innerHTML = text;
   }
 
-  // Build PubMed query (includes date/studyType filters)
-  var pubmedQuery = q;
+  // Build PubMed query (includes date/studyType filters).
+  // Per-database overrides (advanced mode) replace the BASE query; date and
+  // study-type filters are appended on top either way.
+  var pubmedQuery = getDbQuery('pubmed', q, secQ);
   if (studyType) pubmedQuery += ' AND ' + studyType;
   if (dateFrom) pubmedQuery += ' AND ("' + dateFrom + '"[PDAT] : "3000"[PDAT])';
   if (dateTo)   pubmedQuery += ' AND ("1000"[PDAT] : "' + dateTo + '"[PDAT])';
@@ -2457,7 +2476,7 @@ function doSearch() {
   // Cochrane: Europe PMC with journal filter
   // Europe PMC indexes journals by ISO-4 abbreviation, not full title.
   // "Cochrane Database of Systematic Reviews" returns 0; "Cochrane Database Syst Rev" matches.
-  var cochraneQuery = q + ' JOURNAL:"Cochrane Database Syst Rev"';
+  var cochraneQuery = getDbQuery('cochrane', q, secQ);
   if (dateFrom) cochraneQuery += ' AND FIRST_PDATE:[' + dateFrom + '-01-01 TO 3000-12-31]';
   if (dateTo)   cochraneQuery += ' AND FIRST_PDATE:[1000-01-01 TO ' + dateTo + '-12-31]';
 
@@ -2483,7 +2502,7 @@ function doSearch() {
 
   if (useEuropePmc) {
     makePill('europepmc', '&#127757; Europe PMC');
-    var epQuery = q;
+    var epQuery = getDbQuery('europepmc', q, secQ);
     if (dateFrom) epQuery += ' AND FIRST_PDATE:[' + dateFrom + '-01-01 TO 3000-12-31]';
     if (dateTo)   epQuery += ' AND FIRST_PDATE:[1000-01-01 TO ' + dateTo + '-12-31]';
     promises.push(
@@ -2496,7 +2515,7 @@ function doSearch() {
   if (useSemantic) {
     makePill('semantic', '&#129504; Semantic Scholar');
     promises.push(
-      fetchSemanticScholar(secQ, maxResults, dateFrom, dateTo)
+      fetchSemanticScholar(getDbQuery('semantic', q, secQ), maxResults, dateFrom, dateTo)
         .then(function(r) { setPill('semantic', '&#129504; Semantic Scholar — ' + r.length + ' results', 'done'); return r; })
         .catch(function(e) { setPill('semantic', '&#129504; Semantic Scholar — ' + (e.message || 'failed'), 'error'); console.error('Semantic:', e); return []; })
     );
@@ -2505,7 +2524,7 @@ function doSearch() {
   if (useOpenAlex) {
     makePill('openalex', '&#127760; OpenAlex');
     promises.push(
-      fetchOpenAlex(secQ, maxResults, dateFrom, dateTo)
+      fetchOpenAlex(getDbQuery('openalex', q, secQ), maxResults, dateFrom, dateTo)
         .then(function(r) { setPill('openalex', '&#127760; OpenAlex — ' + r.length + ' results', 'done'); return r; })
         .catch(function(e) { setPill('openalex', '&#127760; OpenAlex — ' + (e.message || 'failed'), 'error'); console.error('OpenAlex:', e); return []; })
     );
@@ -2514,7 +2533,7 @@ function doSearch() {
   if (useScopus) {
     makePill('scopus', '&#128083; Scopus');
     promises.push(
-      fetchScopus(secQ, maxResults, dateFrom, dateTo)
+      fetchScopus(getDbQuery('scopus', q, secQ), maxResults, dateFrom, dateTo)
         .then(function(r) { setPill('scopus', '&#128083; Scopus — ' + r.length + ' results', 'done'); return r; })
         .catch(function(e) { setPill('scopus', '&#128083; Scopus — ' + (e.message || 'failed'), 'error'); console.error('Scopus:', e); return []; })
     );
@@ -2523,13 +2542,21 @@ function doSearch() {
   if (useClinicalTrials) {
     makePill('clinicaltrials', '&#129514; ClinicalTrials.gov');
     promises.push(
-      fetchClinicalTrials(secQ, maxResults, dateFrom, dateTo)
+      fetchClinicalTrials(getDbQuery('clinicaltrials', q, secQ), maxResults, dateFrom, dateTo)
         .then(function(r) { setPill('clinicaltrials', '&#129514; ClinicalTrials.gov — ' + r.length + ' results', 'done'); return r; })
         .catch(function(e) { setPill('clinicaltrials', '&#129514; ClinicalTrials.gov — ' + (e.message || 'failed'), 'error'); console.error('ClinicalTrials:', e); return []; })
     );
   } else { promises.push(Promise.resolve([])); }
 
   Promise.all(promises).then(function(allResults) {
+    // Preserve each database's own relevance ranking before we merge: tag every
+    // paper with its index within its source list. After dedup, _retrievalRank
+    // is the best (lowest) rank any database gave it. This powers the
+    // "Search Relevance" sort — the ranking signal advanced searches should use,
+    // since MeSH-indexed retrieval can't be re-ranked fairly by literal keywords.
+    allResults.forEach(function(srcList) {
+      (srcList || []).forEach(function(p, i) { p._retrievalRank = i; });
+    });
     // Flatten and deduplicate across sources
     var combined = deduplicatePapers(
       allResults[0], allResults[1], allResults[2], allResults[3], allResults[4], allResults[5], allResults[6]
@@ -2561,6 +2588,15 @@ function doSearch() {
     lastSearchProvenance = {
       primaryQuery: q,
       secondaryQuery: secQ,
+      perSourceQueries: {
+        'PubMed':             usePubmed         ? getDbQuery('pubmed', q, secQ)         : null,
+        'Cochrane':           useCochrane       ? getDbQuery('cochrane', q, secQ)       : null,
+        'Europe PMC':         useEuropePmc      ? getDbQuery('europepmc', q, secQ)      : null,
+        'Semantic Scholar':   useSemantic       ? getDbQuery('semantic', q, secQ)       : null,
+        'OpenAlex':           useOpenAlex       ? getDbQuery('openalex', q, secQ)       : null,
+        'Scopus':             useScopus         ? getDbQuery('scopus', q, secQ)         : null,
+        'ClinicalTrials.gov': useClinicalTrials ? getDbQuery('clinicaltrials', q, secQ) : null
+      },
       primaryRaw: primaryRaw,
       secondaryRaw: secondaryRaw,
       totalIdentified: primaryRaw + secondaryRaw,
@@ -2589,6 +2625,17 @@ function doSearch() {
       p.manualTags = [];
       return p;
     });
+
+    // Mode-appropriate default ranking for this fresh result set:
+    //  - Advanced searches are precision instruments — the strategy (MeSH, set
+    //    logic) already encodes relevance, so rank by what the databases returned.
+    //    Literal keyword re-scoring misranks MeSH-retrieved papers.
+    //  - Simple searches retrieve broadly — the criteria score genuinely helps
+    //    surface the right study types, so keep it as the ranking signal there.
+    // The user can still change the sort dropdown afterwards; this only sets
+    // the starting point per search.
+    var sortSel = document.getElementById('sort-by');
+    if (sortSel) sortSel.value = (searchMode === 'advanced') ? 'relevance' : 'score';
 
     // Enrich weak abstracts via PubMed efetch — runs async, updates cards in place.
     // Targets papers with a PMID but short/absent abstract (< 300 chars),
@@ -2671,6 +2718,11 @@ function deduplicatePapers(pubmedArr, cochraneArr, europePmcArr, semanticArr, op
     if (existing.citationCount == null && incoming.citationCount != null) existing.citationCount = incoming.citationCount;
     if (!existing.fullTextUrl && incoming.fullTextUrl) { existing.fullTextUrl = incoming.fullTextUrl; existing.fullTextSource = incoming.fullTextSource; }
     if (!existing.doi && incoming.doi) existing.doi = incoming.doi;
+    // Keep the best (lowest) retrieval rank any source gave this paper
+    if (incoming._retrievalRank != null &&
+        (existing._retrievalRank == null || incoming._retrievalRank < existing._retrievalRank)) {
+      existing._retrievalRank = incoming._retrievalRank;
+    }
   }
 
   function tryAdd(p) {
@@ -2987,6 +3039,112 @@ function deriveSecondaryQuery(pubmedQuery) {
   return s.replace(/\s+/g, ' ').trim();
 }
 
+// ══════════════════════════════════════════════
+// PER-DATABASE STRATEGIES (advanced mode)
+// Each database can run its own native-syntax query. Rows auto-derive from
+// the primary/secondary bars exactly as doSearch always has; editing a row
+// takes manual control of that database (sticky until per-row re-derive),
+// mirroring the secondary bar's edited/re-derive pattern.
+// ══════════════════════════════════════════════
+var dbQueryOverrides = {};  // dbId -> user-edited query string
+var dbQueryEdited    = {};  // dbId -> true once the user edits that row
+
+var PERDB_META = [
+  { id: 'pubmed',         label: '\ud83d\udd2c PubMed',             stream: 'primary',   derive: function(q, secQ){ return q; } },
+  { id: 'cochrane',       label: '\ud83d\udcda Cochrane (CDSR)',    stream: 'primary',   derive: function(q, secQ){ return q + ' JOURNAL:"Cochrane Database Syst Rev"'; } },
+  { id: 'europepmc',      label: '\ud83c\udf0d Europe PMC',         stream: 'primary',   derive: function(q, secQ){ return q; } },
+  { id: 'semantic',       label: '\ud83e\udde0 Semantic Scholar',   stream: 'secondary', derive: function(q, secQ){ return secQ; } },
+  { id: 'openalex',       label: '\ud83c\udf10 OpenAlex',           stream: 'secondary', derive: function(q, secQ){ return secQ; } },
+  { id: 'scopus',         label: '\ud83d\udc53 Scopus',             stream: 'secondary', derive: function(q, secQ){ return secQ; } },
+  { id: 'clinicaltrials', label: '\ud83e\uddea ClinicalTrials.gov', stream: 'secondary', derive: function(q, secQ){ return secQ; } }
+];
+
+// Current derivation inputs as the panel sees them (live preview)
+function perDbInputs() {
+  var q = (document.getElementById('query-input').value || '').trim();
+  var secEl = document.getElementById('query-input-secondary');
+  var secQ = (secEl && secEl.value.trim()) || deriveSecondaryQuery(q) || q;
+  return { q: q, secQ: secQ };
+}
+
+// The query a database will actually run (advanced mode honours overrides;
+// simple mode never does — simple flow is untouched by this panel).
+function getDbQuery(dbId, q, secQ) {
+  if (searchMode === 'advanced' && dbQueryEdited[dbId] && (dbQueryOverrides[dbId] || '').trim()) {
+    return dbQueryOverrides[dbId].trim();
+  }
+  for (var i = 0; i < PERDB_META.length; i++) {
+    if (PERDB_META[i].id === dbId) return PERDB_META[i].derive(q, secQ);
+  }
+  return q;
+}
+
+function togglePerDbPanel() {
+  var body = document.getElementById('perdb-body');
+  var caret = document.getElementById('perdb-caret');
+  var open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'block';
+  caret.innerHTML = open ? '\u25bc show' : '\u25b2 hide';
+  if (!open) renderPerDbRows();
+}
+
+function renderPerDbRows() {
+  var box = document.getElementById('perdb-rows');
+  if (!box) return;
+  var inp = perDbInputs();
+  var html = PERDB_META.map(function(m) {
+    if (!dbEnabled(m.id)) return '';
+    var edited = !!dbQueryEdited[m.id];
+    var val = edited ? (dbQueryOverrides[m.id] || '') : m.derive(inp.q, inp.secQ);
+    var streamColour = m.stream === 'primary' ? '#60a5fa' : '#a78bfa';
+    return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">' +
+      '<span style="flex:0 0 160px;font-size:11px;color:#cbd5e1;display:flex;align-items:center;gap:6px">' + m.label +
+        '<span style="font-size:8px;color:' + streamColour + ';border:1px solid ' + streamColour + '44;border-radius:4px;padding:1px 4px">' + (m.stream === 'primary' ? 'MeSH' : 'keyword') + '</span>' +
+      '</span>' +
+      '<input type="text" data-perdb="' + m.id + '" value="' + esc(val) + '"' +
+        ' style="flex:1;min-width:0;padding:7px 10px;font-size:11.5px;border-radius:6px;border:1px solid ' + (edited ? '#f59e0b66' : '#1e2d4a') + ';background:#0d1220;color:#cbd5e1;font-family:\'IBM Plex Mono\',monospace"' +
+        ' oninput="perDbRowEdited(this)" onkeydown="if(event.key===\'Enter\') doSearch()" />' +
+      (edited
+        ? '<span style="font-size:9px;color:#fbbf24;white-space:nowrap">edited</span>' +
+          '<button onclick="perDbRederive(\'' + m.id + '\')" title="Discard manual edit; re-derive from the primary/secondary bars" style="font-size:9px;padding:3px 7px;border-radius:5px;border:1px solid #334155;background:#0d1220;color:#7dd3fc;cursor:pointer;white-space:nowrap">\u21bb re-derive</button>'
+        : '<span style="font-size:9px;color:#475569;white-space:nowrap">auto</span>') +
+      '</div>';
+  }).join('');
+  box.innerHTML = html || '<div style="font-size:11px;color:#64748b">no databases selected</div>';
+}
+
+function perDbRowEdited(inputEl) {
+  var id = inputEl.getAttribute('data-perdb');
+  dbQueryOverrides[id] = inputEl.value;
+  dbQueryEdited[id] = true;
+  // Light touch: just flip this row's chrome to edited state without a full
+  // re-render (which would steal focus mid-typing).
+  inputEl.style.borderColor = '#f59e0b66';
+}
+
+function perDbRederive(id) {
+  delete dbQueryOverrides[id];
+  delete dbQueryEdited[id];
+  renderPerDbRows();
+}
+
+// Live-refresh non-edited rows when the source bars change (panel open only)
+(function wirePerDbLiveRefresh() {
+  function refreshIfOpen() {
+    var body = document.getElementById('perdb-body');
+    if (body && body.style.display !== 'none') {
+      // Don't re-render if focus is inside a per-db row (user mid-edit)
+      var active = document.activeElement;
+      if (active && active.getAttribute && active.getAttribute('data-perdb')) return;
+      renderPerDbRows();
+    }
+  }
+  var p = document.getElementById('query-input');
+  var s = document.getElementById('query-input-secondary');
+  if (p) p.addEventListener('input', refreshIfOpen);
+  if (s) s.addEventListener('input', refreshIfOpen);
+})();
+
 // Toggle between Simple (single keyword bar, original behaviour) and Advanced
 // (two-stream MeSH primary + keyword secondary). Simple mode hides .adv-only
 // elements; the search itself still feeds all selected sources, deriving the
@@ -3175,6 +3333,14 @@ function renderProvenancePanel(prov) {
         '<span style="color:#94a3b8">Duplicates removed: <b style="color:#fbbf24">' + prov.duplicatesRemoved + '</b></span>' +
         '<span style="color:#94a3b8">Unique records screened: <b style="color:#4ade80">' + prov.uniqueRecords + '</b></span>' +
       '</div>' +
+      (prov.perSourceQueries ?
+        '<details style="margin-top:9px"><summary style="font-size:10.5px;color:#7dd3fc;cursor:pointer">Executed query per database</summary>' +
+        '<div style="margin-top:6px">' +
+        Object.keys(prov.perSourceQueries).filter(function(k){ return prov.perSourceQueries[k]; }).map(function(k) {
+          return '<div style="margin-bottom:5px"><span style="font-size:10px;color:#94a3b8">' + esc(k) + '</span>' +
+            '<div style="font-size:10px;color:#cbd5e1;font-family:\'IBM Plex Mono\',monospace;background:#0d1220;border:1px solid #1e293b;border-radius:5px;padding:5px 8px;margin-top:2px;word-break:break-all">' + esc(prov.perSourceQueries[k]) + '</div></div>';
+        }).join('') +
+        '</div></details>' : '') +
     '</div>';
 }
 
@@ -3183,6 +3349,13 @@ function copyProvenanceText() {
   if (!p) return;
   var lines = [];
   lines.push('Search identification (PRISMA)');
+  if (p.perSourceQueries) {
+    lines.push('');
+    lines.push('Search strategy per database:');
+    Object.keys(p.perSourceQueries).forEach(function(k) {
+      if (p.perSourceQueries[k]) lines.push('  ' + k + ': ' + p.perSourceQueries[k]);
+    });
+  }
   lines.push('Primary (MeSH) query: ' + p.primaryQuery);
   lines.push('Secondary (keyword) query: ' + p.secondaryQuery);
   lines.push('');
@@ -3688,6 +3861,14 @@ function getSorted() {
     if (filterScore > 0 && p.score < filterScore) return false;
     return true;
   }).sort(function(a, b) {
+    if (sortBy === 'relevance') {
+      // Database-given relevance: lowest rank first. Papers found by multiple
+      // sources break ties ahead of single-source papers (stronger signal).
+      var ra = (a._retrievalRank != null) ? a._retrievalRank : 9999;
+      var rb = (b._retrievalRank != null) ? b._retrievalRank : 9999;
+      if (ra !== rb) return ra - rb;
+      return ((b.sources||[]).length) - ((a.sources||[]).length);
+    }
     if (sortBy === 'score') {
       var aScore = a.score + citationBoostScore(a);
       var bScore = b.score + citationBoostScore(b);
