@@ -760,8 +760,13 @@ body.mode-advanced .adv-block { display: block !important; }
       <div id="controls-bar">
         <span id="paper-count"></span>
         <div id="controls-right">
+          <label id="pool-criteria-toggle-wrap" title="Pooled results hide the keyword criteria score by default — your search strategy already encodes inclusion logic. Tick to show the keyword score and chips as an additional screening aid." style="display:none;align-items:center;gap:5px;font-size:11px;color:#94a3b8;cursor:pointer;padding:5px 10px;border:1px solid #1e2d4a;border-radius:6px;user-select:none;white-space:nowrap">
+            <input type="checkbox" id="pool-criteria-cb" onchange="showCriteriaInPool=this.checked;renderPapers();" style="accent-color:#3b82f6;margin:0">
+            show keyword criteria
+          </label>
           <select id="sort-by" onchange="renderPapers()">
             <option value="relevance">Sort: Search Relevance</option>
+            <option value="sources">Sort: Most Databases</option>
             <option value="score">Sort: Criteria Score &#8595;</option>
             <option value="agent_rank">Sort: Agent Rank &#8595;</option>
             <option value="citations">Sort: Most Cited &#8595;</option>
@@ -2640,8 +2645,11 @@ function doSearch() {
     //    surface the right study types, so keep it as the ranking signal there.
     // The user can still change the sort dropdown afterwards; this only sets
     // the starting point per search.
+    resultsContext = 'simple';
     var sortSel = document.getElementById('sort-by');
     if (sortSel) sortSel.value = (searchMode === 'advanced') ? 'relevance' : 'score';
+    var pcWrap = document.getElementById('pool-criteria-toggle-wrap');
+    if (pcWrap) pcWrap.style.display = 'none';
 
     // Enrich weak abstracts via PubMed efetch — runs async, updates cards in place.
     // Targets papers with a PMID but short/absent abstract (< 300 chars),
@@ -3282,8 +3290,11 @@ function screenPool() {
   };
 
   // Advanced workbench ranks by database relevance by default
+  resultsContext = 'pool';
   var sortSel = document.getElementById('sort-by');
   if (sortSel) sortSel.value = 'relevance';
+  var pcWrap = document.getElementById('pool-criteria-toggle-wrap');
+  if (pcWrap) pcWrap.style.display = 'inline-flex';
 
   switchTab('results');
   renderResults();
@@ -3302,6 +3313,8 @@ function screenPool() {
 // elements; the search itself still feeds all selected sources, deriving the
 // secondary keyword query silently from the single bar.
 var searchMode = 'simple';
+var resultsContext = 'simple';      // 'simple' (fan-out search) or 'pool' (workbench screen)
+var showCriteriaInPool = false;     // pool-mode toggle: surface keyword criteria score/chips
 function setSearchMode(mode) {
   searchMode = mode;
   var adv = mode === 'advanced';
@@ -3934,14 +3947,19 @@ function updateCardScore(p) {
   var boost = citationBoostScore(p);
   var boostedScore = Math.min(100, p.score + boost);
   var scoreColor = boostedScore >= 80 ? '#22c55e' : boostedScore >= 50 ? '#f59e0b' : '#ef4444';
-  var scoreLabel = card.querySelector('.score-label');
-  if (scoreLabel) scoreLabel.textContent = boost > 0 ? 'Criteria+Cit.' : 'Criteria';
-  var scoreNum = card.querySelector('.score-num');
-  if (scoreNum) { scoreNum.style.color = scoreColor; scoreNum.innerHTML = boostedScore + '<span style="font-size:11px;color:#4b5563">%</span>'; }
-  var scoreBar = card.querySelector('.score-bar');
-  if (scoreBar) { scoreBar.style.width = boostedScore + '%'; scoreBar.style.background = scoreColor; }
-  var passCount = card.querySelector('.pass-count');
-  if (passCount) passCount.textContent = p.passedCriteria + '/' + p.totalCriteria + ' pass';
+  // In pool screening (criteria hidden) the score box shows Sources, not the
+  // keyword score — don't overwrite it when a paper's text deepens later.
+  var poolBox = (resultsContext === 'pool' && !showCriteriaInPool);
+  if (!poolBox) {
+    var scoreLabel = card.querySelector('.score-label');
+    if (scoreLabel) scoreLabel.textContent = boost > 0 ? 'Criteria+Cit.' : 'Criteria';
+    var scoreNum = card.querySelector('.score-num');
+    if (scoreNum) { scoreNum.style.color = scoreColor; scoreNum.innerHTML = boostedScore + '<span style="font-size:11px;color:#4b5563">%</span>'; }
+    var scoreBar = card.querySelector('.score-bar');
+    if (scoreBar) { scoreBar.style.width = boostedScore + '%'; scoreBar.style.background = scoreColor; }
+    var passCount = card.querySelector('.pass-count');
+    if (passCount) passCount.textContent = p.passedCriteria + '/' + p.totalCriteria + ' pass';
+  }
   // Rebuild criteria chips
   if (p.scanResults) {
     var chipHtml = p.scanResults.map(function(r) {
@@ -4003,6 +4021,14 @@ function getSorted() {
     if (filterScore > 0 && p.score < filterScore) return false;
     return true;
   }).sort(function(a, b) {
+    if (sortBy === 'sources') {
+      // Cross-database corroboration: found by more databases first.
+      var sa = (a.sources||[]).length, sb = (b.sources||[]).length;
+      if (sa !== sb) return sb - sa;
+      var ra2 = (a._retrievalRank != null) ? a._retrievalRank : 9999;
+      var rb2 = (b._retrievalRank != null) ? b._retrievalRank : 9999;
+      return ra2 - rb2;
+    }
     if (sortBy === 'relevance') {
       // Database-given relevance: lowest rank first. Papers found by multiple
       // sources break ties ahead of single-source papers (stronger signal).
@@ -4072,6 +4098,9 @@ function renderPapers() {
     var boost = citationBoostScore(p);
     var boostedScore = Math.min(100, p.score + boost);
     var scoreColor = boostedScore >= 80 ? '#22c55e' : boostedScore >= 50 ? '#f59e0b' : '#ef4444';
+    // Pool screening hides the keyword-criteria UI unless the user opts in —
+    // the workbench strategy already encodes inclusion logic.
+    var hideCriteria = (resultsContext === 'pool' && !showCriteriaInPool);
 
     // Scan result chips (compact, show on card)
     var chipHtml = '';
@@ -4155,16 +4184,25 @@ function renderPapers() {
               })() +
             '</div>' +
             '<div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span id="ft-'+p.pmid+'" class="pdf-checking">'+(p.nctId ? '' : p.doi ? '&#8635; checking for free PDF…' : '')+'</span>'+(p.nctId ? '<a class="pdf-btn" href="https://clinicaltrials.gov/study/'+(/^NCT\d+$/i.test(p.nctId)?p.nctId:'')+'" target="_blank" style="border-color:#f47256;background:#1f100a;color:#fda57d">&#129514; View on ClinicalTrials.gov</a>' : p.fullTextUrl ? '<a class="pdf-btn" href="'+safeUrl(p.fullTextUrl)+'" target="_blank">&#128196; Free PDF <span style="font-size:9px;opacity:0.7">('+p.fullTextSource+')</span></a>' : '')+buildLibkeyLink(p)+'</div>' +
-            '<div class="scan-row">'+chipHtml+'</div>' +
+            (hideCriteria ? '' : '<div class="scan-row">'+chipHtml+'</div>') +
             '<div class="scan-row" style="margin-top:4px">'+tagHtml+'</div>' +
           '</div>' +
-          '<div class="score-box">' +
-            '<div class="score-label">' + (boost > 0 ? 'Criteria+Cit.' : 'Criteria') + '</div>' +
-            '<div class="score-num" style="color:'+scoreColor+'">' + boostedScore + '<span style="font-size:11px;color:#4b5563">%</span></div>' +
-            '<div class="score-bar-wrap"><div class="score-bar" style="width:'+boostedScore+'%;background:'+scoreColor+'"></div></div>' +
-            '<div class="pass-count" style="font-size:10px;color:#4b5563;margin-top:2px">'+p.passedCriteria+'/'+p.totalCriteria+' pass</div>' +
-            (boost > 0 ? '<div style="font-size:9px;color:#3b82f6;margin-top:1px" title="'+p.score+'% criteria + '+boost+'pt citation boost ('+((p.citationCount||0))+' citations)">+'+boost+' cit. boost</div>' : '') +
-          '</div>' +
+          (hideCriteria
+            // Pool screening: the strategy already encodes inclusion logic, so the
+            // card leads with cross-database corroboration — the cheapest honest
+            // relevance signal — instead of a keyword score.
+            ? '<div class="score-box" title="Found by ' + (p.sources||[]).length + ' database' + ((p.sources||[]).length===1?'':'s') + ': ' + esc((p.sources||[]).join(', ')) + '">' +
+                '<div class="score-label">Sources</div>' +
+                '<div class="score-num" style="color:' + ((p.sources||[]).length >= 3 ? '#22c55e' : (p.sources||[]).length === 2 ? '#f59e0b' : '#64748b') + '">' + (p.sources||[]).length + '<span style="font-size:11px;color:#4b5563"> DB' + ((p.sources||[]).length===1?'':'s') + '</span></div>' +
+                '<div class="score-bar-wrap"><div class="score-bar" style="width:' + Math.min(100, (p.sources||[]).length * 25) + '%;background:' + ((p.sources||[]).length >= 3 ? '#22c55e' : (p.sources||[]).length === 2 ? '#f59e0b' : '#64748b') + '"></div></div>' +
+              '</div>'
+            : '<div class="score-box">' +
+                '<div class="score-label">' + (boost > 0 ? 'Criteria+Cit.' : 'Criteria') + '</div>' +
+                '<div class="score-num" style="color:'+scoreColor+'">' + boostedScore + '<span style="font-size:11px;color:#4b5563">%</span></div>' +
+                '<div class="score-bar-wrap"><div class="score-bar" style="width:'+boostedScore+'%;background:'+scoreColor+'"></div></div>' +
+                '<div class="pass-count" style="font-size:10px;color:#4b5563;margin-top:2px">'+p.passedCriteria+'/'+p.totalCriteria+' pass</div>' +
+                (boost > 0 ? '<div style="font-size:9px;color:#3b82f6;margin-top:1px" title="'+p.score+'% criteria + '+boost+'pt citation boost ('+((p.citationCount||0))+' citations)">+'+boost+' cit. boost</div>' : '') +
+              '</div>') +
           buildChecklistPill(p) +
           '<button class="expand-btn" onclick="toggleExpand(\''+p.pmid+'\')" title="Expand to see scan criteria detail, quality checklists, abstract and notes">'+(expanded?'&#9650; Less':'&#9660; Full criteria &amp; checklists')+'</button>' +
           '<button class="addtoproj-btn" id="addtoproj-btn-'+p.pmid+'" onclick="openAddToProjModal(\''+p.pmid+'\',\'search\')" title="Add to a project">&#128193; Add to project</button>' +
@@ -5064,13 +5102,16 @@ function applyFullText(p, text, depthType, db) {
 
   var card = document.getElementById('card-' + p.pmid);
   if (card) {
+    var poolBox2 = (resultsContext === 'pool' && !showCriteriaInPool);
     var scoreColor = p.score >= 80 ? '#22c55e' : p.score >= 50 ? '#f59e0b' : '#ef4444';
-    var scoreNum = card.querySelector('.score-num');
-    if (scoreNum) { scoreNum.style.color = scoreColor; scoreNum.innerHTML = p.score + '<span style="font-size:11px;color:#4b5563">%</span>'; }
-    var scoreBar = card.querySelector('.score-bar');
-    if (scoreBar) { scoreBar.style.width = p.score + '%'; scoreBar.style.background = scoreColor; }
-    var passCount = card.querySelector('.pass-count');
-    if (passCount) passCount.textContent = p.passedCriteria + '/' + p.totalCriteria + ' pass';
+    if (!poolBox2) {
+      var scoreNum = card.querySelector('.score-num');
+      if (scoreNum) { scoreNum.style.color = scoreColor; scoreNum.innerHTML = p.score + '<span style="font-size:11px;color:#4b5563">%</span>'; }
+      var scoreBar = card.querySelector('.score-bar');
+      if (scoreBar) { scoreBar.style.width = p.score + '%'; scoreBar.style.background = scoreColor; }
+      var passCount = card.querySelector('.pass-count');
+      if (passCount) passCount.textContent = p.passedCriteria + '/' + p.totalCriteria + ' pass';
+    }
 
     var chips = card.querySelectorAll('.scan-chip.pass, .scan-chip.fail');
     chips.forEach(function(chip, ci) {
