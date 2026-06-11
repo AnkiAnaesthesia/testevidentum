@@ -3,7 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Evidentum Pro</title>
+<title>Evidentum Pro — Systematic Review Workbench</title>
+<meta name="theme-color" content="#0a0f1c">
+<meta name="description" content="Evidentum Pro — a self-contained systematic review search and appraisal workbench. Installable, offline-capable, your data stays on your machine.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
@@ -398,15 +405,63 @@ body.mode-advanced .adv-block { display: block !important; }
 .ucl-score-mid  { border-color: #f59e0b44; background: #1c1408; color: #fbbf24; }
 .ucl-score-low  { border-color: #ef444444; background: #1a0808; color: #f87171; }
 .ucl-export-btn { padding: 5px 14px; font-size: 11px; }
+
+/* ══ Evidentum splash ══ */
+#ev-splash { position: fixed; inset: 0; z-index: 99999; background: #0a0f1c;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; cursor: pointer; transition: opacity 0.6s ease; }
+#ev-splash.ev-out { opacity: 0; pointer-events: none; }
+#ev-splash-art { width: min(520px, 86vw); height: auto; border-radius: 14px;
+  box-shadow: 0 18px 60px rgba(0,0,0,0.55); }
+#ev-splash-word { font-family: 'Fraunces', Georgia, serif; font-size: clamp(30px, 6vw, 46px);
+  font-weight: 650; color: #e2e8f0; letter-spacing: 0.5px; }
+#ev-splash-word span { background: linear-gradient(135deg, #f59e0b, #ef4444);
+  -webkit-background-clip: text; background-clip: text; color: transparent; }
+#ev-splash-tag { font-family: 'Inter', sans-serif; font-size: 13px; color: #64748b; letter-spacing: 2.5px; text-transform: uppercase; }
+#ev-splash-hint { font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #334155; margin-top: 10px; }
+@media (prefers-reduced-motion: reduce) { #ev-splash { transition: none; } }
 </style>
 </head>
 <body>
+
+<!-- ══ EVIDENTUM SPLASH ══ -->
+<div id="ev-splash" role="presentation">
+  <svg id="ev-splash-art" viewBox="0 0 520 300" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <defs>
+      <radialGradient id="evg" cx="50%" cy="40%" r="70%">
+        <stop offset="0%" stop-color="#13203a"/><stop offset="100%" stop-color="#0a0f1c"/>
+      </radialGradient>
+    </defs>
+    <rect width="520" height="300" fill="url(#evg)"/>
+    <g stroke="#26405f" stroke-width="1.2">
+      <path d="M120 90L235 60M120 90L180 190M235 60L320 130M320 130L180 190M320 130L430 95M430 95L390 210M180 190L300 235M300 235L390 210M120 90L60 170M60 170L180 190"/>
+    </g>
+    <g>
+      <circle cx="120" cy="90" r="9" fill="#7dd3fc"><animate attributeName="r" values="9;11;9" dur="3.2s" repeatCount="indefinite"/></circle>
+      <circle cx="235" cy="60" r="6" fill="#a78bfa"/>
+      <circle cx="320" cy="130" r="11" fill="#22c55e"><animate attributeName="r" values="11;13;11" dur="4s" repeatCount="indefinite"/></circle>
+      <circle cx="430" cy="95" r="5.5" fill="#f59e0b"/>
+      <circle cx="180" cy="190" r="7.5" fill="#7dd3fc"/>
+      <circle cx="390" cy="210" r="6" fill="#a78bfa"/>
+      <circle cx="300" cy="235" r="5" fill="#38bdf8"/>
+      <circle cx="60" cy="170" r="4.5" fill="#22c55e"/>
+    </g>
+    <g fill="none" stroke="#3b5a82" stroke-width="1.4" opacity="0.85">
+      <rect x="226" y="120" width="34" height="44" rx="4"/>
+      <path d="M233 132h20M233 140h20M233 148h13"/>
+    </g>
+  </svg>
+  <div id="ev-splash-word">Evidentum <span>Pro</span></div>
+  <div id="ev-splash-tag">search · screen · appraise</div>
+  <div id="ev-splash-hint">click anywhere to begin</div>
+</div>
+
 
 <div id="header">
   <div id="logo">
     <div id="logo-icon">⚗</div>
     <div>
-      <div id="logo-title">Evidentum <span style="font-size:11px;padding:2px 8px;border-radius:4px;background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff;font-weight:700;vertical-align:middle;margin-left:4px">PRO</span></div>
+      <div id="logo-title" style="font-family:'Fraunces',Georgia,serif;font-weight:650;letter-spacing:0.2px">Evidentum <span style="font-size:11px;padding:2px 8px;border-radius:4px;background:linear-gradient(135deg,#f59e0b,#ef4444);color:#fff;font-weight:700;vertical-align:middle;margin-left:4px;font-family:'Inter',sans-serif">PRO</span></div>
       <div id="logo-sub">AI-powered systematic literature review</div>
     </div>
   </div>
@@ -457,6 +512,12 @@ body.mode-advanced .adv-block { display: block !important; }
       <input type="password" id="anthropic-key-input" placeholder="sk-ant-..." oninput="saveAnthropicKey()" autocomplete="off"
         style="width:100%;box-sizing:border-box;padding:7px 10px;font-size:12px;letter-spacing:0.04em;margin-bottom:4px" />
       <div style="font-size:11px;color:#4b5563">Claude Sonnet via Messages API. <a href="https://console.anthropic.com/account/keys" target="_blank" style="color:#64748b">console.anthropic.com →</a></div>
+      <!-- OpenAI account (Sign in with ChatGPT) -->
+      <div style="font-size:10px;color:#10a37f;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;margin:14px 0 5px">OpenAI Account (Sign in with ChatGPT)</div>
+      <input type="text" id="ev-oauth-clientid" placeholder="OAuth client ID (from OpenAI's third-party sign-in program)" oninput="evSaveOauthClientId()" autocomplete="off"
+        style="width:100%;box-sizing:border-box;padding:7px 10px;font-size:12px;letter-spacing:0.04em;margin-bottom:6px" />
+      <div id="ev-oauth-status" style="margin-bottom:4px"></div>
+      <div style="font-size:11px;color:#4b5563">Sign in with your ChatGPT account instead of an API key. OpenAI's third-party sign-in is a gated program — <a href="https://openai.com" target="_blank" style="color:#64748b">apply via their developer form →</a></div>
     </div>
 
     <!-- LibKey -->
@@ -8113,6 +8174,140 @@ document.addEventListener('DOMContentLoaded', function() {
   }, true);
 });
 
+
+// ══════════════════════════════════════════════
+// EVIDENTUM — splash, PWA, OpenAI account sign-in (OAuth 2.0 + PKCE)
+// ══════════════════════════════════════════════
+(function evSplash() {
+  var splash = document.getElementById('ev-splash');
+  if (!splash) return;
+  var seen = false;
+  try { seen = sessionStorage.getItem('ev_splash_seen') === '1'; } catch(e) {}
+  function dismiss() {
+    splash.classList.add('ev-out');
+    try { sessionStorage.setItem('ev_splash_seen', '1'); } catch(e) {}
+    setTimeout(function(){ if (splash.parentNode) splash.parentNode.removeChild(splash); }, 700);
+  }
+  if (seen) { splash.parentNode.removeChild(splash); return; }
+  splash.addEventListener('click', dismiss);
+  setTimeout(dismiss, 2600); // auto-enter
+})();
+
+// Service worker: offline capability + installability. Only on https/localhost.
+(function evSW() {
+  if (!('serviceWorker' in navigator)) return;
+  var ok = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  if (!ok) return;
+  try { navigator.serviceWorker.register('sw.js'); } catch(e) { console.warn('SW registration failed:', e); }
+})();
+
+// ── OpenAI account sign-in (Sign in with ChatGPT — OAuth 2.0 + PKCE) ──
+// OpenAI's third-party sign-in is a gated program: register at
+// https://openai.com (developer interest form) to receive a client ID for
+// this app's origin. Paste it below (or via Settings) and the button goes live.
+// Until then the button explains the situation honestly. API keys keep working.
+var EV_OAUTH = {
+  clientId: '',                                          // <- from OpenAI's program
+  authorizeUrl: 'https://auth.openai.com/oauth/authorize',
+  tokenUrl: 'https://auth.openai.com/oauth/token',
+  scope: 'openid profile email offline_access',
+  redirectUri: location.origin + location.pathname
+};
+try { EV_OAUTH.clientId = localStorage.getItem('ev_oauth_client_id') || EV_OAUTH.clientId; } catch(e) {}
+var evOauthToken = null;
+try { evOauthToken = JSON.parse(localStorage.getItem('ev_oauth_token') || 'null'); } catch(e) {}
+
+function evB64url(buf) {
+  return btoa(String.fromCharCode.apply(null, new Uint8Array(buf)))
+    .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+async function evPkceChallenge(verifier) {
+  var data = new TextEncoder().encode(verifier);
+  var digest = await crypto.subtle.digest('SHA-256', data);
+  return evB64url(digest);
+}
+async function evOauthSignIn() {
+  if (!EV_OAUTH.clientId) {
+    showToast('Sign in with ChatGPT needs a client ID from OpenAI\u2019s third-party program \u2014 see Settings for details', '#f59e0b');
+    return;
+  }
+  var verifier = evB64url(crypto.getRandomValues(new Uint8Array(32)));
+  var state = evB64url(crypto.getRandomValues(new Uint8Array(16)));
+  try {
+    sessionStorage.setItem('ev_pkce_verifier', verifier);
+    sessionStorage.setItem('ev_oauth_state', state);
+  } catch(e) { showToast('Browser storage unavailable \u2014 cannot start sign-in', '#ef4444'); return; }
+  var challenge = await evPkceChallenge(verifier);
+  var u = EV_OAUTH.authorizeUrl
+    + '?response_type=code&client_id=' + encodeURIComponent(EV_OAUTH.clientId)
+    + '&redirect_uri=' + encodeURIComponent(EV_OAUTH.redirectUri)
+    + '&scope=' + encodeURIComponent(EV_OAUTH.scope)
+    + '&state=' + state
+    + '&code_challenge=' + challenge
+    + '&code_challenge_method=S256';
+  location.assign(u);
+}
+// Handle the redirect back with ?code=
+(function evOauthCallback() {
+  var params = new URLSearchParams(location.search);
+  var code = params.get('code');
+  if (!code) return;
+  var state = params.get('state');
+  var storedState = null, verifier = null;
+  try {
+    storedState = sessionStorage.getItem('ev_oauth_state');
+    verifier = sessionStorage.getItem('ev_pkce_verifier');
+  } catch(e) {}
+  history.replaceState(null, '', location.pathname); // clean the URL
+  if (!verifier || state !== storedState) { console.warn('OAuth state mismatch'); return; }
+  fetch(EV_OAUTH.tokenUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'grant_type=authorization_code'
+      + '&code=' + encodeURIComponent(code)
+      + '&redirect_uri=' + encodeURIComponent(EV_OAUTH.redirectUri)
+      + '&client_id=' + encodeURIComponent(EV_OAUTH.clientId)
+      + '&code_verifier=' + encodeURIComponent(verifier)
+  }).then(function(r){ return r.json(); }).then(function(tok) {
+    if (tok && tok.access_token) {
+      evOauthToken = tok;
+      try { localStorage.setItem('ev_oauth_token', JSON.stringify(tok)); } catch(e) {}
+      showToast('\u2713 Signed in with your OpenAI account', '#22c55e');
+      evRenderOauthStatus();
+    } else {
+      showToast('Sign-in failed: ' + (tok.error_description || tok.error || 'unknown error'), '#ef4444');
+    }
+  }).catch(function(e){ showToast('Token exchange failed: ' + e.message, '#ef4444'); });
+})();
+function evOauthSignOut() {
+  evOauthToken = null;
+  try { localStorage.removeItem('ev_oauth_token'); } catch(e) {}
+  evRenderOauthStatus();
+  showToast('Signed out', '#3b82f6');
+}
+function evSaveOauthClientId() {
+  var v = (document.getElementById('ev-oauth-clientid').value || '').trim();
+  EV_OAUTH.clientId = v;
+  try { localStorage.setItem('ev_oauth_client_id', v); } catch(e) {}
+  evRenderOauthStatus();
+}
+function evRenderOauthStatus() {
+  var el = document.getElementById('ev-oauth-status');
+  if (!el) return;
+  if (evOauthToken && evOauthToken.access_token) {
+    el.innerHTML = '<span style="color:#4ade80">\u25cf signed in</span> &nbsp;<button onclick="evOauthSignOut()" style="font-size:10px;padding:3px 8px;border-radius:5px;border:1px solid #334155;background:#0d1220;color:#94a3b8;cursor:pointer">sign out</button>';
+  } else if (EV_OAUTH.clientId) {
+    el.innerHTML = '<button onclick="evOauthSignIn()" style="font-size:11px;padding:7px 13px;border-radius:7px;border:none;background:#10a37f;color:#fff;cursor:pointer;font-weight:600">Sign in with ChatGPT</button>';
+  } else {
+    el.innerHTML = '<span style="color:#64748b;font-size:10.5px">Awaiting a client ID from OpenAI\u2019s third-party sign-in program. Apply via OpenAI\u2019s developer interest form, register this app\u2019s URL as the redirect URI, then paste the client ID above. API keys work in the meantime.</span>';
+  }
+}
+// Initialise the settings panel now that everything above exists.
+(function evOauthInit() {
+  var f = document.getElementById('ev-oauth-clientid');
+  if (f && EV_OAUTH.clientId) f.value = EV_OAUTH.clientId;
+  evRenderOauthStatus();
+})();
 </script>
 </body>
 </html>
