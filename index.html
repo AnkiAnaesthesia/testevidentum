@@ -3063,6 +3063,21 @@ var WB_FETCH = {
 function wbDateFrom(){ return document.getElementById('date-from').value; }
 function wbDateTo(){ return document.getElementById('date-to').value; }
 
+// Simple-mode fan-out derivation: which base query each database gets when the
+// single bar drives everything. (Workbench/advanced mode does not use this —
+// each group has its own explicit query.)
+function getDbQuery(dbId, q, secQ) {
+  switch (dbId) {
+    case 'pubmed':
+    case 'europepmc':
+      return q;
+    case 'cochrane':
+      return q + ' JOURNAL:"Cochrane Database Syst Rev"';
+    default: // semantic, openalex, scopus, clinicaltrials — keyword engines
+      return secQ;
+  }
+}
+
 function switchWbTab(id) {
   document.querySelectorAll('.wb-tab').forEach(function(t){ t.classList.toggle('active', t.getAttribute('data-wbtab')===id); });
   document.querySelectorAll('.wb-panel').forEach(function(p){ p.classList.remove('active'); });
