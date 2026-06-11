@@ -131,8 +131,6 @@ input:focus, select:focus, textarea:focus { border-color: #3b82f6; }
 .scan-chip.pass { background: #14271a; border-color: #22c55e; color: #4ade80; }
 .scan-chip.fail { background: #1a0f0f; border-color: #7f1d1d; color: #f87171; }
 .scan-chip.unknown { background: #111827; border-color: #374151; color: #6b7280; }
-.scan-chip.manual-tag { background: #1e3a5f; border-color: #3b82f6; color: #60a5fa; cursor: pointer; }
-.scan-chip.manual-tag.off { background: transparent; border-color: #1e2d4a; color: #4b5563; }
 .pdf-btn { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 2px 10px; border-radius: 20px; border: 1px solid #16a34a; background: #14271a; color: #4ade80; text-decoration: none; white-space: nowrap; font-family: 'IBM Plex Mono', monospace; cursor: pointer; }
 .depth-badge { font-size: 10px; padding: 2px 8px; border-radius: 20px; border: 1px solid; white-space: nowrap; font-weight: 600; display: inline-block; }
 .depth-full { border-color: #7c3aed; background: #1e1040; color: #a78bfa; }
@@ -415,7 +413,6 @@ body.mode-advanced .adv-block { display: block !important; }
   <div id="tabs">
     <button class="tab-btn active" onclick="switchTab('search')">Search</button>
     <button class="tab-btn" id="results-tab-btn" onclick="switchTab('results')">Results</button>
-    <button class="tab-btn" onclick="switchTab('criteria')">Scan Criteria</button>
     <button class="tab-btn" onclick="switchTab('history')">History</button>
     <button class="tab-btn" onclick="switchTab('uploader')">&#128203; PDF Scanner</button>
     <button class="tab-btn" onclick="switchTab('projects')">&#128193; Projects</button>
@@ -657,15 +654,16 @@ body.mode-advanced .adv-block { display: block !important; }
 
     </div>
 
-    <!-- Step 2: Document Scanning -->
-    <div class="card">
+    <!-- Step 2: Document Scanning (simple mode only — pool screening uses
+         metadata signals by default; criteria available via results toggle) -->
+    <div class="card simple-only">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
         <span class="step-num">2</span>
         <div class="card-label" style="margin-bottom:0">Document Scanning Criteria</div>
         <span style="font-size:11px;color:#4b5563;margin-left:4px">— applied to each paper's title &amp; abstract after retrieval</span>
       </div>
       <div class="info-box">
-        Each criterion scans the title and abstract for your keywords. <b>Must contain</b> = paper flagged ✓ if any keyword found. <b>Must NOT contain</b> = paper flagged ✓ if no keywords found (e.g. use "animal, rat, mouse" to exclude animal studies). Papers passing more criteria score higher. Configure full criteria in the <b>Scan Criteria</b> tab.
+        Each criterion scans the title and abstract for your keywords. <b>Must contain</b> = paper flagged ✓ if any keyword found. <b>Must NOT contain</b> = paper flagged ✓ if no keywords found (e.g. use "animal, rat, mouse" to exclude animal studies). Papers passing more criteria score higher. Edit the full criteria set in the table below.
       </div>
       <!-- Live preview of active criteria -->
       <div id="criteria-preview"></div>
@@ -693,8 +691,8 @@ body.mode-advanced .adv-block { display: block !important; }
       </div>
     </div>
 
-    <!-- Step 3: Quality Checklists -->
-    <div class="card">
+    <!-- Step 3: Quality Checklists (simple mode only — informational) -->
+    <div class="card simple-only">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
         <span class="step-num">3</span>
         <div class="card-label" style="margin-bottom:0">Automated Quality Checklists</div>
@@ -711,6 +709,7 @@ body.mode-advanced .adv-block { display: block !important; }
         <span style="font-size:11px;padding:3px 11px;border-radius:20px;border:1px solid #06b6d444;background:#06b6d411;color:#06b6d4">&#10003; AGREE II — Clinical Guidelines</span>
       </div>
     </div>
+
 
     <div id="search-error" class="alert-error" style="display:none"></div>
     <div id="search-success" class="alert-success" style="display:none" onclick="switchTab('results')">
@@ -781,7 +780,6 @@ body.mode-advanced .adv-block { display: block !important; }
             <option value="75">&#8805;75% criteria met</option>
             <option value="50">&#8805;50% criteria met</option>
           </select>
-          <select id="filter-tag" onchange="renderPapers()"><option value="All">All Tags</option></select>
           <label id="citation-boost-toggle" title="Adds up to 15 points based on log-normalised citation count. Rewards landmark papers but penalises recent work — toggle off for unbiased criteria-only ranking." style="display:inline-flex;align-items:center;gap:5px;font-size:11px;color:#94a3b8;cursor:pointer;padding:5px 10px;border:1px solid #1e2d4a;border-radius:6px;user-select:none;white-space:nowrap">
             <input type="checkbox" id="citation-boost-cb" onchange="renderPapers()" style="accent-color:#3b82f6;cursor:pointer">
             &#128218; Citation boost
@@ -819,46 +817,6 @@ body.mode-advanced .adv-block { display: block !important; }
       <div id="papers-list"></div>
       <div style="margin-top:18px;text-align:center">
         <button class="btn btn-green" style="padding:11px 28px;font-size:13px" onclick="exportCSV()">&#8595; Export All to CSV</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ══ SCAN CRITERIA TAB ══════════════════════════════ -->
-  <div class="tab-panel" id="tab-criteria">
-    <div class="card">
-      <div class="card-label">Document Scanning Criteria</div>
-      <div class="info-box">
-        Define what each retrieved paper <b>must contain</b> or <b>must not contain</b>. After a search, every paper's title and abstract is scanned against these rules. Each passing criterion adds to the paper's score. <b>Re-run your search</b> after editing criteria to re-scan all papers.
-      </div>
-      <table class="criteria-table" id="crit-table">
-        <thead>
-          <tr>
-            <th style="width:200px">Criterion Label</th>
-            <th>Keywords to scan for (comma-separated, case-insensitive)</th>
-            <th style="width:160px">Rule type</th>
-            <th style="width:50px"></th>
-          </tr>
-        </thead>
-        <tbody id="crit-body"></tbody>
-      </table>
-      <div class="add-crit-row">
-        <input type="text" id="new-crit-label" placeholder="e.g. Blinded study" style="width:190px" />
-        <input type="text" id="new-crit-kw" placeholder="double-blind, blinded, masking, allocation concealment" style="flex:1;padding:6px 10px" />
-        <select id="new-crit-type" style="padding:6px 9px;font-size:12px;background:#111827;border:1px solid #1e2d4a;border-radius:6px;color:#e2e8f0">
-          <option value="must">Must contain</option>
-          <option value="mustnot">Must NOT contain</option>
-        </select>
-        <button class="btn btn-ghost" onclick="addCriterion()">+ Add</button>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-label">Manual Classification Tags</div>
-      <div class="info-box">These tags appear on every paper in the results and can be toggled manually. They are <b>not</b> used for scoring — they are for your team's workflow (e.g. Include/Exclude decisions, assignments).</div>
-      <div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:12px" id="manual-tag-list"></div>
-      <div style="display:flex;gap:8px;">
-        <input type="text" id="new-manual-tag" placeholder="New tag name…" style="width:200px;padding:6px 10px;" onkeydown="if(event.key==='Enter') addManualTag()" />
-        <button class="btn btn-ghost" onclick="addManualTag()">+ Add Tag</button>
       </div>
     </div>
   </div>
@@ -1251,7 +1209,6 @@ var scanCriteria = [
 ];
 
 // Manual tags (workflow only — not used in scoring)
-var manualTags = ["Include", "Exclude", "Unsure", "Data Extracted", "High Priority"];
 
 // ══════════════════════════════════════════════
 // CHECKLIST DEFINITIONS
@@ -2342,12 +2299,11 @@ function switchTab(name) {
   document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.remove('active'); });
   document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
   document.getElementById('tab-' + name).classList.add('active');
-  var map = { search:'Search', results:'Results', criteria:'Scan Criteria', history:'History', uploader:'PDF Scanner', projects:'Projects' };
+  var map = { search:'Search', results:'Results', history:'History', uploader:'PDF Scanner', projects:'Projects' };
   document.querySelectorAll('.tab-btn').forEach(function(b){
     var label = b.textContent.trim().replace(/\s+/g,' ');
     if (b.textContent.trim() === map[name] || label.indexOf(map[name]) !== -1) b.classList.add('active');
   });
-  if (name === 'criteria') { renderCriteriaTable(); renderManualTagList(); }
   if (name === 'search') renderCriteriaPreview();
 }
 
@@ -3987,9 +3943,6 @@ function renderResults() {
   var types = []; papers.forEach(function(p){ if (types.indexOf(p.studyType)===-1) types.push(p.studyType); }); types.sort();
   document.getElementById('filter-type').innerHTML = '<option value="All">All Study Types</option>' + types.map(function(t){ return '<option>'+t+'</option>'; }).join('');
 
-  // Manual tag filter
-  document.getElementById('filter-tag').innerHTML = '<option value="All">All Tags</option>' + manualTags.map(function(t){ return '<option>'+t+'</option>'; }).join('');
-
   renderPapers();
   fetchFullTextLinks();
   fetchAndRescanPMCPapers();
@@ -4013,11 +3966,9 @@ function getSorted() {
   var sortBy = document.getElementById('sort-by').value;
   var filterType = document.getElementById('filter-type').value;
   var filterScore = parseInt(document.getElementById('filter-score').value);
-  var filterTag = document.getElementById('filter-tag').value;
 
   return papers.filter(function(p) {
     if (filterType !== 'All' && p.studyType !== filterType) return false;
-    if (filterTag !== 'All' && p.manualTags.indexOf(filterTag) === -1) return false;
     if (filterScore > 0 && p.score < filterScore) return false;
     return true;
   }).sort(function(a, b) {
@@ -4113,11 +4064,7 @@ function renderPapers() {
     }
 
     // Manual tag chips
-    var tagHtml = manualTags.map(function(tag) {
-      var active = p.manualTags.indexOf(tag) !== -1;
-      var safeTag = tag.replace(/'/g,"\\'");
-      return '<span class="scan-chip manual-tag'+(active?'':' off')+'" data-tag="'+tag.replace(/"/g,'&quot;')+'" onclick="toggleManualTag(\''+p.pmid+'\',\''+safeTag+'\')">'+tag+'</span>';
-    }).join('');
+    var tagHtml = ''; // manual tags removed — screening decisions live in Projects
 
     // Expanded scan detail
     var detailHtml = '';
@@ -4185,7 +4132,6 @@ function renderPapers() {
             '</div>' +
             '<div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span id="ft-'+p.pmid+'" class="pdf-checking">'+(p.nctId ? '' : p.doi ? '&#8635; checking for free PDF…' : '')+'</span>'+(p.nctId ? '<a class="pdf-btn" href="https://clinicaltrials.gov/study/'+(/^NCT\d+$/i.test(p.nctId)?p.nctId:'')+'" target="_blank" style="border-color:#f47256;background:#1f100a;color:#fda57d">&#129514; View on ClinicalTrials.gov</a>' : p.fullTextUrl ? '<a class="pdf-btn" href="'+safeUrl(p.fullTextUrl)+'" target="_blank">&#128196; Free PDF <span style="font-size:9px;opacity:0.7">('+p.fullTextSource+')</span></a>' : '')+buildLibkeyLink(p)+'</div>' +
             (hideCriteria ? '' : '<div class="scan-row">'+chipHtml+'</div>') +
-            '<div class="scan-row" style="margin-top:4px">'+tagHtml+'</div>' +
           '</div>' +
           (hideCriteria
             // Pool screening: the strategy already encodes inclusion logic, so the
@@ -4247,17 +4193,6 @@ function toggleExpand(pmid) {
   }
 }
 
-function toggleManualTag(pmid, tag) {
-  var p = papers.find(function(x){ return x.pmid === pmid; });
-  if (!p) return;
-  var idx = p.manualTags.indexOf(tag);
-  if (idx !== -1) p.manualTags.splice(idx, 1); else p.manualTags.push(tag);
-  var card = document.getElementById('card-'+pmid);
-  card.querySelectorAll('.scan-chip.manual-tag').forEach(function(el) {
-    var isActive = p.manualTags.indexOf(el.dataset.tag) !== -1;
-    el.className = 'scan-chip manual-tag' + (isActive ? '' : ' off');
-  });
-}
 
 function updateNotes(pmid, val) {
   var p = papers.find(function(x){ return x.pmid === pmid; }); if (p) p.notes = val;
@@ -4418,6 +4353,7 @@ function renderRelatedPanel(panel, items, title, mode) {
 // ══════════════════════════════════════════════
 function renderCriteriaTable() {
   var tbody = document.getElementById('crit-body');
+  if (!tbody) return; // criteria tab removed — home table is the sole editor
   tbody.innerHTML = scanCriteria.map(function(c, i) {
     var safeKws = (c.keywords||[]).join(', ').replace(/"/g,'&quot;');
     var mustOpt = '<option value="must"'+(c.type==='must'?' selected':'')+'>Must contain</option>';
@@ -4498,23 +4434,7 @@ function homeRemoveCriterion(i) {
 // ══════════════════════════════════════════════
 // MANUAL TAGS
 // ══════════════════════════════════════════════
-function renderManualTagList() {
-  var el = document.getElementById('manual-tag-list');
-  el.innerHTML = manualTags.map(function(tag, i) {
-    return '<span style="display:inline-flex;align-items:center;gap:6px;background:#111827;border:1px solid #1e2d4a;border-radius:20px;padding:3px 12px;font-size:12px;color:#94a3b8">' +
-      tag +
-      '<span style="cursor:pointer;color:#4b5563;font-size:14px" onclick="removeManualTag('+i+')">&times;</span>' +
-    '</span>';
-  }).join('');
-}
 
-function addManualTag() {
-  var val = document.getElementById('new-manual-tag').value.trim();
-  if (val && manualTags.indexOf(val) === -1) { manualTags.push(val); renderManualTagList(); }
-  document.getElementById('new-manual-tag').value = '';
-}
-
-function removeManualTag(i) { manualTags.splice(i,1); renderManualTagList(); }
 
 // ══════════════════════════════════════════════
 // HISTORY
