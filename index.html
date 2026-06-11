@@ -7365,13 +7365,13 @@ async function _analyseOneWithAgentInner(p, questionOverride) {
       console.warn('Local pdf.js extraction failed:', e.message);
     }
 
-    // ── PATH D: pdf.js failed — let OpenAI fetch the PDF directly ────────
+    // ── PATH D: pdf.js failed (usually CORS) — let the AI provider fetch the PDF server-side ──
     try {
       var result = await callOpenAIWithPdfUrl(pdfUrl, prompts);
-      try { applyAgentResults(p, result, p.abstract || '', 'PDF (OpenAI)'); } catch(e) { console.warn('applyAgentResults error (PATH D - OpenAI PDF):', e); }
+      try { applyAgentResults(p, result, p.abstract || '', 'PDF (server-fetched)'); } catch(e) { console.warn('applyAgentResults error (PATH D - server PDF):', e); }
       return;
     } catch(e) {
-      console.warn('OpenAI PDF fetch also failed, falling back to abstract:', e.message);
+      console.warn('Server-side PDF fetch also failed, falling back to abstract:', e.message);
     }
   }
 
@@ -7406,8 +7406,34 @@ function safeParseAgentJson(raw) {
 // Call OpenAI Responses API with a PDF URL (OpenAI fetches the PDF server-side)
 // Anthropic does not support server-side PDF URL fetching — caller falls back to abstract.
 async function callOpenAIWithPdfUrl(pdfUrl, prompts) {
+  // Both providers can fetch a PDF URL SERVER-SIDE, which bypasses the browser
+  // CORS blocks that make local pdf.js extraction fail on most publisher sites.
   if (aiProvider === 'anthropic') {
-    throw new Error('Anthropic provider does not support server-side PDF fetch — using abstract fallback');
+    // Anthropic Messages API: document content block with a URL source —
+    // Anthropic fetches and reads the PDF itself.
+    var aResp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': openAIKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 4000,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'document', source: { type: 'url', url: pdfUrl } },
+            { type: 'text', text: prompts.systemPrompt + '\n\n' + prompts.userHeader }
+          ]
+        }]
+      })
+    });
+    if (!aResp.ok) {
+      var aErr = await aResp.json().catch(function(){ return {}; });
+      throw new Error('Anthropic PDF fetch ' + aResp.status + ': ' + ((aErr.error && aErr.error.message) || 'unknown'));
+    }
+    var aData = await aResp.json();
+    var aRaw = (aData.content && aData.content[0] && aData.content[0].text) || '{}';
+    aRaw = aRaw.replace(/^```json\s*/i,'').replace(/^```\s*/i,'').replace(/\s*```$/,'').trim();
+    return safeParseAgentJson(aRaw);
   }
 
   var response = await fetch('https://api.openai.com/v1/responses', {
