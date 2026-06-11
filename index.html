@@ -583,15 +583,12 @@ body.mode-advanced .adv-block { display: block !important; }
           <button onclick="clearPool()" title="Empty the pool and start over" style="font-size:11px;padding:8px 11px;border-radius:7px;border:1px solid #334155;background:#0d1220;color:#94a3b8;cursor:pointer;white-space:nowrap">Clear</button>
         </div>
 
-        <!-- Workbench tabs -->
+        <!-- Workbench tabs — grouped by query syntax family -->
         <div style="display:flex;gap:2px;border-bottom:1px solid #1e293b;overflow-x:auto">
-          <button class="wb-tab active" data-wbtab="pubmed"         onclick="switchWbTab('pubmed')">&#128300; PubMed</button>
-          <button class="wb-tab"        data-wbtab="europepmc"      onclick="switchWbTab('europepmc')">&#127757; Europe PMC</button>
-          <button class="wb-tab"        data-wbtab="cochrane"       onclick="switchWbTab('cochrane')">&#128218; Cochrane</button>
-          <button class="wb-tab"        data-wbtab="scopus"         onclick="switchWbTab('scopus')">&#128083; Scopus</button>
-          <button class="wb-tab"        data-wbtab="semantic"       onclick="switchWbTab('semantic')">&#129504; Semantic Scholar</button>
-          <button class="wb-tab"        data-wbtab="openalex"       onclick="switchWbTab('openalex')">&#127760; OpenAlex</button>
-          <button class="wb-tab"        data-wbtab="clinicaltrials" onclick="switchWbTab('clinicaltrials')">&#129514; ClinicalTrials.gov</button>
+          <button class="wb-tab active" data-wbtab="pubmed"  onclick="switchWbTab('pubmed')">&#128300; PubMed</button>
+          <button class="wb-tab"        data-wbtab="epmc"    onclick="switchWbTab('epmc')">&#127757; Europe PMC + Cochrane</button>
+          <button class="wb-tab"        data-wbtab="scopus"  onclick="switchWbTab('scopus')">&#128083; Scopus</button>
+          <button class="wb-tab"        data-wbtab="keyword" onclick="switchWbTab('keyword')">&#129504; Keyword engines</button>
         </div>
 
         <!-- PubMed panel (includes set-history builder) -->
@@ -613,19 +610,16 @@ body.mode-advanced .adv-block { display: block !important; }
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <input type="text" id="combo-input" placeholder="#1 AND #2" oninput="document.getElementById('combo-preview').innerHTML='';" onkeydown="if(event.key==='Enter') previewCombo()" style="flex:1;min-width:160px;box-sizing:border-box;padding:10px 13px;font-size:13px;font-family:'IBM Plex Mono',monospace;border-radius:7px;border:1px solid #334155;background:#0d1220;color:#e2e8f0" />
           <button onclick="previewCombo()" title="Resolve the combination on PubMed and show the count (no retrieval yet)" style="font-size:12px;padding:9px 14px;border-radius:7px;border:1px solid #334155;background:#0d1220;color:#cbd5e1;cursor:pointer;font-weight:600;white-space:nowrap">Preview count</button>
-          <button onclick="executeCombo()" title="Run the combined strategy across all selected databases" style="font-size:12px;padding:9px 14px;border-radius:7px;border:none;background:#3b82f6;color:#fff;cursor:pointer;font-weight:600;white-space:nowrap">&#8594; Execute &amp; fan out</button>
+          <button onclick="executeCombo()" title="Retrieve the combined set from PubMed and add it to the pool (replaces any earlier PubMed run)" style="font-size:12px;padding:9px 14px;border-radius:7px;border:none;background:#3b82f6;color:#fff;cursor:pointer;font-weight:600;white-space:nowrap">&#8594; Run combined set into pool</button>
         </div>
         <div id="combo-preview" style="margin-top:9px;min-height:8px"></div>
       </div>
         </div>
 
-        <!-- Other database panels (input injected by renderWbPanels) -->
-        <div class="wb-panel" id="wbpanel-europepmc"><div id="wb-input-europepmc"></div></div>
-        <div class="wb-panel" id="wbpanel-cochrane"><div id="wb-input-cochrane"></div></div>
+        <!-- Group panels (input injected by renderWbPanels) -->
+        <div class="wb-panel" id="wbpanel-epmc"><div id="wb-input-epmc"></div></div>
         <div class="wb-panel" id="wbpanel-scopus"><div id="wb-input-scopus"></div></div>
-        <div class="wb-panel" id="wbpanel-semantic"><div id="wb-input-semantic"></div></div>
-        <div class="wb-panel" id="wbpanel-openalex"><div id="wb-input-openalex"></div></div>
-        <div class="wb-panel" id="wbpanel-clinicaltrials"><div id="wb-input-clinicaltrials"></div></div>
+        <div class="wb-panel" id="wbpanel-keyword"><div id="wb-input-keyword"></div></div>
       </div>
 
       <div class="grid4" style="margin-top:12px">
@@ -3062,27 +3056,34 @@ var poolSlices = {};   // dbId -> { query, results[], count, time }
 var poolMerged = [];   // deduplicated union, ready to screen
 
 var WB_META = {
-  pubmed:         { label: '\ud83d\udd2c PubMed',             syntax: 'PubMed MeSH / boolean',   stream: 'primary',
-                    hint: 'Full PubMed syntax: ("delirium"[Mesh] OR delirium[tiab]) AND ...',
-                    derive: function(q){ return q; } },
-  europepmc:      { label: '\ud83c\udf0d Europe PMC',         syntax: 'Europe PMC query',        stream: 'primary',
-                    hint: 'Europe PMC syntax, e.g. (delirium AND postoperative) — supports MeSH:, AUTH:, etc.',
-                    derive: function(q){ return q; } },
-  cochrane:       { label: '\ud83d\udcda Cochrane (CDSR)',    syntax: 'Europe PMC + journal filter', stream: 'primary',
-                    hint: 'Searches CDSR via Europe PMC. Journal filter is added automatically.',
-                    derive: function(q){ return q; } },
-  scopus:         { label: '\ud83d\udc53 Scopus',             syntax: 'Scopus boolean',          stream: 'secondary',
-                    hint: 'Scopus syntax, e.g. TITLE-ABS-KEY(delirium AND postoperative). Capped at 25 results.',
-                    derive: function(q){ return deriveSecondaryQuery(q) || q; } },
-  semantic:       { label: '\ud83e\udde0 Semantic Scholar',   syntax: 'plain keywords',          stream: 'secondary',
-                    hint: 'Plain keywords only — no boolean operators or field tags.',
-                    derive: function(q){ return deriveSecondaryQuery(q) || q; } },
-  openalex:       { label: '\ud83c\udf10 OpenAlex',           syntax: 'plain keywords',          stream: 'secondary',
-                    hint: 'Plain keywords. OpenAlex does its own relevance ranking.',
-                    derive: function(q){ return deriveSecondaryQuery(q) || q; } },
-  clinicaltrials: { label: '\ud83e\uddea ClinicalTrials.gov', syntax: 'plain keywords',          stream: 'secondary',
-                    hint: 'Plain keywords — searches registered & ongoing trials (AACT API).',
-                    derive: function(q){ return deriveSecondaryQuery(q) || q; } }
+  pubmed:         { label: 'PubMed',             icon: '\ud83d\udd2c' },
+  europepmc:      { label: 'Europe PMC',         icon: '\ud83c\udf0d' },
+  cochrane:       { label: 'Cochrane (CDSR)',    icon: '\ud83d\udcda' },
+  scopus:         { label: 'Scopus',             icon: '\ud83d\udc53' },
+  semantic:       { label: 'Semantic Scholar',   icon: '\ud83e\udde0' },
+  openalex:       { label: 'OpenAlex',           icon: '\ud83c\udf10' },
+  clinicaltrials: { label: 'ClinicalTrials.gov', icon: '\ud83e\uddea' }
+};
+
+// Groups share one query bar per syntax family. Members keep individual pool
+// slices, so replace semantics and per-database PRISMA reporting are unchanged.
+var WB_GROUPS = {
+  pubmed:  { title: '\ud83d\udd2c PubMed', syntax: 'PubMed MeSH / boolean',
+             hint: 'Full PubMed syntax: ("delirium"[Mesh] OR delirium[tiab]) AND \u2026 Use the numbered sets below to build the strategy incrementally.',
+             members: ['pubmed'],
+             derive: function(q){ return q; } },
+  epmc:    { title: '\ud83c\udf0d Europe PMC + Cochrane', syntax: 'Europe PMC query',
+             hint: 'One Europe PMC\u2013syntax query runs both: Europe PMC directly, and Cochrane (CDSR) with the journal filter added automatically.',
+             members: ['europepmc','cochrane'],
+             derive: function(q){ return q; } },
+  scopus:  { title: '\ud83d\udc53 Scopus', syntax: 'Scopus boolean',
+             hint: 'Scopus syntax, e.g. TITLE-ABS-KEY(delirium AND postoperative). Needs an API key in Settings; returns up to 25 results per search (Elsevier API limit).',
+             members: ['scopus'],
+             derive: function(q){ return deriveSecondaryQuery(q) || q; } },
+  keyword: { title: '\ud83e\udde0 Keyword engines', syntax: 'plain keywords',
+             hint: 'Plain keywords \u2014 no boolean operators or field tags. One query runs Semantic Scholar, OpenAlex, and ClinicalTrials.gov (untick any you don\u2019t want).',
+             members: ['semantic','openalex','clinicaltrials'],
+             derive: function(q){ return deriveSecondaryQuery(q) || q; } }
 };
 
 var WB_FETCH = {
@@ -3098,21 +3099,6 @@ var WB_FETCH = {
 function wbDateFrom(){ return document.getElementById('date-from').value; }
 function wbDateTo(){ return document.getElementById('date-to').value; }
 
-// getDbQuery retained for the simple-mode fan-out path (doSearch still calls it).
-var PERDB_META = [
-  { id:'pubmed', derive:function(q,s){return q;} },
-  { id:'cochrane', derive:function(q,s){return q + ' JOURNAL:"Cochrane Database Syst Rev"';} },
-  { id:'europepmc', derive:function(q,s){return q;} },
-  { id:'semantic', derive:function(q,s){return s;} },
-  { id:'openalex', derive:function(q,s){return s;} },
-  { id:'scopus', derive:function(q,s){return s;} },
-  { id:'clinicaltrials', derive:function(q,s){return s;} }
-];
-function getDbQuery(dbId, q, secQ) {
-  for (var i=0;i<PERDB_META.length;i++) if (PERDB_META[i].id===dbId) return PERDB_META[i].derive(q, secQ);
-  return q;
-}
-
 function switchWbTab(id) {
   document.querySelectorAll('.wb-tab').forEach(function(t){ t.classList.toggle('active', t.getAttribute('data-wbtab')===id); });
   document.querySelectorAll('.wb-panel').forEach(function(p){ p.classList.remove('active'); });
@@ -3120,82 +3106,107 @@ function switchWbTab(id) {
   if (panel) panel.classList.add('active');
 }
 
-// Build the input row for one database (all panels except pubmed's set-history)
+// Build the input row for one group panel
 function renderWbPanels() {
-  Object.keys(WB_META).forEach(function(id) {
-    var host = document.getElementById('wb-input-' + id);
+  Object.keys(WB_GROUPS).forEach(function(gid) {
+    var host = document.getElementById('wb-input-' + gid);
     if (!host) return;
-    var m = WB_META[id];
-    var streamColour = m.stream === 'primary' ? '#60a5fa' : '#a78bfa';
-    var slice = poolSlices[id];
-    var statusHtml = slice
-      ? '<span style="font-size:10px;color:#4ade80">\u2713 ' + slice.count + ' in pool</span>'
-      : '<span style="font-size:10px;color:#475569">not yet run</span>';
-    var needsKey = (id === 'scopus');
-    var keyWarn = (needsKey && !scopusApiKey)
+    var g = WB_GROUPS[gid];
+
+    // Per-member status badges + include checkboxes (checkboxes only for multi-member groups)
+    var memberHtml = g.members.map(function(id) {
+      var m = WB_META[id];
+      var slice = poolSlices[id];
+      var status = slice
+        ? '<span style="font-size:9px;color:#4ade80">\u2713 ' + slice.count + '</span>'
+        : '<span style="font-size:9px;color:#475569">\u2014</span>';
+      var cb = g.members.length > 1
+        ? '<input type="checkbox" id="wbinc-' + id + '" checked style="accent-color:#3b82f6;margin:0"> '
+        : '';
+      return '<label style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;color:#cbd5e1;border:1px solid #1e2d4a;border-radius:6px;padding:4px 9px;cursor:' + (g.members.length>1?'pointer':'default') + '">' +
+        cb + m.icon + ' ' + esc(m.label) + ' ' + status + '</label>';
+    }).join('');
+
+    var keyWarn = (gid === 'scopus' && !scopusApiKey)
       ? '<div style="font-size:10px;color:#fbbf24;margin-top:6px">\u26a0\ufe0f Scopus needs an API key in Settings (\u2699 top right) before it can run.</div>'
       : '';
+
     host.innerHTML =
-      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
-        '<span style="font-size:12px;font-weight:600;color:#e2e8f0">' + m.label + '</span>' +
-        '<span style="font-size:9px;color:' + streamColour + ';border:1px solid ' + streamColour + '44;border-radius:4px;padding:1px 6px">' + esc(m.syntax) + '</span>' +
-        '<span style="margin-left:auto">' + statusHtml + '</span>' +
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">' +
+        '<span style="font-size:12px;font-weight:600;color:#e2e8f0">' + g.title + '</span>' +
+        '<span style="font-size:9px;color:#a78bfa;border:1px solid #a78bfa44;border-radius:4px;padding:1px 6px">' + esc(g.syntax) + '</span>' +
+        '<span style="margin-left:auto;display:inline-flex;gap:6px;flex-wrap:wrap">' + memberHtml + '</span>' +
       '</div>' +
-      '<div style="font-size:10px;color:#64748b;margin-bottom:7px;line-height:1.5">' + esc(m.hint) + '</div>' +
+      '<div style="font-size:10px;color:#64748b;margin-bottom:7px;line-height:1.5">' + esc(g.hint) + '</div>' +
       '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
-        '<input type="text" id="wbq-' + id + '" placeholder="enter ' + esc(m.syntax) + ' query"' +
+        '<input type="text" id="wbq-' + gid + '" placeholder="enter ' + esc(g.syntax) + ' query"' +
           ' style="flex:1;min-width:200px;box-sizing:border-box;padding:11px 13px;font-size:13px;border-radius:7px;border:1px solid #334155;background:#0d1220;color:#e2e8f0;font-family:\'IBM Plex Mono\',monospace"' +
-          ' onkeydown="if(event.key===\'Enter\') runWbDatabase(\'' + id + '\')" />' +
-        '<button onclick="prefillWb(\'' + id + '\')" title="Fill from your PubMed strategy, translated to this database\'s syntax" style="font-size:11px;padding:9px 13px;border-radius:7px;border:1px solid #334155;background:#0d1220;color:#7dd3fc;cursor:pointer;white-space:nowrap">\u21c4 from PubMed</button>' +
-        '<button onclick="runWbDatabase(\'' + id + '\')" id="wbrun-' + id + '" style="font-size:12px;padding:9px 16px;border-radius:7px;border:none;background:#3b82f6;color:#fff;cursor:pointer;font-weight:600;white-space:nowrap">Run \u2192 add to pool</button>' +
+          ' onkeydown="if(event.key===\'Enter\') runWbGroup(\'' + gid + '\')" />' +
+        (gid !== 'pubmed'
+          ? '<button onclick="prefillWb(\'' + gid + '\')" title="Fill from your PubMed strategy, translated to this syntax" style="font-size:11px;padding:9px 13px;border-radius:7px;border:1px solid #334155;background:#0d1220;color:#7dd3fc;cursor:pointer;white-space:nowrap">\u21c4 from PubMed</button>'
+          : '') +
+        '<button onclick="runWbGroup(\'' + gid + '\')" id="wbrun-' + gid + '" style="font-size:12px;padding:9px 16px;border-radius:7px;border:none;background:#3b82f6;color:#fff;cursor:pointer;font-weight:600;white-space:nowrap">Run \u2192 add to pool</button>' +
       '</div>' + keyWarn +
-      '<div id="wbstatus-' + id + '" style="margin-top:8px;font-size:11px;min-height:6px"></div>';
+      '<div id="wbstatus-' + gid + '" style="margin-top:8px;font-size:11px;min-height:6px"></div>';
   });
 }
 
-// Prefill a database's query from the PubMed tab's strategy, translated.
-function prefillWb(id) {
-  // Source of truth for translation: the PubMed input if present, else combo/primary.
+// Prefill a group's query from the PubMed strategy, translated to its syntax.
+function prefillWb(gid) {
   var pubmedQ = (document.getElementById('wbq-pubmed') && document.getElementById('wbq-pubmed').value.trim())
              || (document.getElementById('query-input') && document.getElementById('query-input').value.trim())
              || '';
   if (!pubmedQ) { showToast('Enter a PubMed strategy first, then translate from it', '#f59e0b'); return; }
-  var translated = WB_META[id].derive(pubmedQ);
-  var inp = document.getElementById('wbq-' + id);
-  if (inp) inp.value = translated;
+  var inp = document.getElementById('wbq-' + gid);
+  if (inp) inp.value = WB_GROUPS[gid].derive(pubmedQ);
 }
 
-// Run one database and store/replace its slice in the pool.
-function runWbDatabase(id) {
-  var inp = document.getElementById('wbq-' + id);
+// Run every (ticked) member of a group with the group's query; each member
+// stores/replaces its own pool slice.
+function runWbGroup(gid) {
+  var g = WB_GROUPS[gid];
+  var inp = document.getElementById('wbq-' + gid);
   var query = inp ? inp.value.trim() : '';
-  if (!query) { showToast('Enter a query for ' + WB_META[id].label.replace(/^[^ ]+ /, ''), '#f59e0b'); return; }
-  if (id === 'scopus' && !scopusApiKey) { showToast('Scopus needs an API key in Settings first', '#f59e0b'); return; }
+  if (!query) { showToast('Enter a query first', '#f59e0b'); return; }
+  if (gid === 'scopus' && !scopusApiKey) { showToast('Scopus needs an API key in Settings first', '#f59e0b'); return; }
+
+  var members = g.members.filter(function(id) {
+    if (g.members.length === 1) return true;
+    var cb = document.getElementById('wbinc-' + id);
+    return !cb || cb.checked;
+  });
+  if (!members.length) { showToast('Tick at least one database in this group', '#f59e0b'); return; }
 
   var maxResults = parseInt(document.getElementById('max-results').value) || 50;
-  var statusEl = document.getElementById('wbstatus-' + id);
-  var runBtn = document.getElementById('wbrun-' + id);
-  if (statusEl) statusEl.innerHTML = '<span class="spinner"></span> searching ' + esc(WB_META[id].syntax) + '\u2026';
+  var statusEl = document.getElementById('wbstatus-' + gid);
+  var runBtn = document.getElementById('wbrun-' + gid);
+  if (statusEl) statusEl.innerHTML = '<span class="spinner"></span> searching ' + members.map(function(id){ return WB_META[id].label; }).join(', ') + '\u2026';
   if (runBtn) { runBtn.disabled = true; runBtn.style.opacity = '0.6'; }
 
-  Promise.resolve(WB_FETCH[id](query, maxResults)).then(function(results) {
-    results = results || [];
-    // Tag retrieval rank within this database for relevance sorting later
-    results.forEach(function(p, i){ p._retrievalRank = i; });
-    var replacing = !!poolSlices[id];
-    poolSlices[id] = { query: query, results: results, count: results.length, time: new Date().toLocaleString() };
+  var lines = [];
+  Promise.all(members.map(function(id) {
+    return Promise.resolve(WB_FETCH[id](query, maxResults)).then(function(results) {
+      results = results || [];
+      results.forEach(function(p, i){ p._retrievalRank = i; });
+      var replacing = !!poolSlices[id];
+      poolSlices[id] = { query: query, results: results, count: results.length, time: new Date().toLocaleString() };
+      lines.push('<span style="color:#4ade80">\u2713 ' + esc(WB_META[id].label) + ': ' + results.length + (replacing ? ' (replaced)' : '') + '</span>');
+      logWbSearch(id, query, results.length, replacing);
+    }).catch(function(e) {
+      console.error('Workbench ' + id + ' failed:', e);
+      lines.push('<span style="color:#ef4444">\u2715 ' + esc(WB_META[id].label) + ': ' + esc(e.message || 'failed') + '</span>');
+    });
+  })).then(function() {
     recomputePool();
-    if (statusEl) statusEl.innerHTML = '<span style="color:#4ade80">\u2713 ' + results.length + ' records ' + (replacing ? 'replaced in' : 'added to') + ' pool</span>';
-    logWbSearch(id, query, results.length, replacing);
-    renderWbPanels(); // refresh status badges across tabs
-    switchWbTab(id);  // keep the user on the tab they ran
-  }).catch(function(e) {
-    console.error('Workbench ' + id + ' failed:', e);
-    if (statusEl) statusEl.innerHTML = '<span style="color:#ef4444">\u2715 ' + esc(e.message || 'search failed') + '</span>';
-  }).then(function() {
+    if (statusEl) statusEl.innerHTML = lines.join(' &nbsp;\u00b7&nbsp; ');
     if (runBtn) { runBtn.disabled = false; runBtn.style.opacity = '1'; }
+    renderWbPanels();
+    switchWbTab(gid);
   });
 }
+
+// Back-compat: executeCombo targets PubMed via its group.
+function runWbDatabase(id) { runWbGroup(id === 'pubmed' ? 'pubmed' : id); }
 
 // Recompute the merged, deduplicated pool from all slices.
 function recomputePool() {
@@ -3234,7 +3245,7 @@ function logWbSearch(id, query, count, replacing) {
     query: query,
     date: new Date().toLocaleString(),
     count: count,
-    sources: WB_META[id].label.replace(/^[^ ]+ /, ''),
+    sources: WB_META[id].label,
     workbench: true
   });
   if (typeof renderHistory === 'function') renderHistory();
@@ -3258,7 +3269,7 @@ function screenPool() {
   // Provenance from the pool
   var perSourceQueries = {};
   Object.keys(poolSlices).forEach(function(id){
-    perSourceQueries[WB_META[id].label.replace(/^[^ ]+ /, '')] = poolSlices[id].query;
+    perSourceQueries[WB_META[id].label] = poolSlices[id].query;
   });
   lastSearchProvenance = {
     primaryQuery: (poolSlices.pubmed && poolSlices.pubmed.query) || '',
@@ -3267,7 +3278,7 @@ function screenPool() {
     totalIdentified: Object.keys(poolSlices).reduce(function(s,id){ return s + poolSlices[id].count; }, 0),
     duplicatesRemoved: Object.keys(poolSlices).reduce(function(s,id){ return s + poolSlices[id].count; }, 0) - poolMerged.length,
     uniqueRecords: poolMerged.length,
-    perSource: (function(){ var o={}; Object.keys(poolSlices).forEach(function(id){ o[WB_META[id].label.replace(/^[^ ]+ /, '')] = poolSlices[id].count; }); return o; })()
+    perSource: (function(){ var o={}; Object.keys(poolSlices).forEach(function(id){ o[WB_META[id].label] = poolSlices[id].count; }); return o; })()
   };
 
   // Advanced workbench ranks by database relevance by default
@@ -3394,7 +3405,7 @@ function previewCombo() {
   var historyTerm = reconstructHistoryTerm(tk.tokens);
   previewPubmedCombo(historyTerm).then(function(res){
     out.innerHTML = '<span style="font-size:11px;color:#cbd5e1">PubMed combined result: <b style="color:#4ade80">' + res.count.toLocaleString() + '</b> records. ' +
-      'Click <b>Execute &amp; fan out</b> to retrieve and search the other databases.</span>';
+      'Click <b>Run combined set into pool</b> to retrieve these records into your pool.</span>';
   }).catch(function(e){
     out.innerHTML = '<span style="color:#f87171;font-size:11px">Preview failed: ' + esc(e.message) + '</span>';
   });
@@ -3436,7 +3447,7 @@ function renderProvenancePanel(prov) {
     if (!n && n !== 0) return '';
     return '<div style="display:flex;justify-content:space-between;padding:2px 0;font-size:11px"><span style="color:#94a3b8">' + esc(label) + '</span><span style="color:#e2e8f0;font-variant-numeric:tabular-nums">' + n + '</span></div>';
   }
-  var primarySrc = ['PubMed','Cochrane','Europe PMC'];
+  var primarySrc = ['PubMed','Cochrane','Cochrane (CDSR)','Europe PMC'];
   var secondarySrc = ['Semantic Scholar','OpenAlex','Scopus','ClinicalTrials.gov'];
   function block(title, sub, srcList, rawTotal, colour) {
     var rows = srcList.map(function(s){ return prov.perSource[s] != null && prov.perSource[s] > 0 ? row(s, prov.perSource[s]) : ''; }).join('');
