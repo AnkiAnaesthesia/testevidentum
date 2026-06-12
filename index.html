@@ -420,6 +420,15 @@ body.mode-advanced .adv-block { display: block !important; }
 #ev-splash-tag { font-family: 'Inter', sans-serif; font-size: 13px; color: #64748b; letter-spacing: 2.5px; text-transform: uppercase; }
 #ev-splash-hint { font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #334155; margin-top: 10px; }
 @media (prefers-reduced-motion: reduce) { #ev-splash { transition: none; } }
+
+/* Build tab */
+.pico-lbl { display:block; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px; }
+.cblock { background:#0a1020; border:1px solid #1e293b; border-radius:9px; padding:11px 13px; margin-bottom:9px; }
+.cblock-head { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+.cterm { display:inline-flex; align-items:center; gap:5px; font-size:11px; padding:4px 9px; border-radius:14px; margin:0 5px 5px 0; cursor:pointer; border:1px solid; font-family:'IBM Plex Mono',monospace; }
+.cterm-mesh { background:#1e3a5f33; border-color:#60a5fa55; color:#93c5fd; }
+.cterm-tiab { background:#2e1f4f33; border-color:#a78bfa55; color:#c4b5fd; }
+.cterm:hover { opacity:0.65; }
 </style>
 </head>
 <body>
@@ -467,6 +476,7 @@ body.mode-advanced .adv-block { display: block !important; }
   </div>
   <div id="tabs">
     <button class="tab-btn active" onclick="switchTab('search')">Search</button>
+    <button class="tab-btn" onclick="switchTab('build')">&#129513; Build Search</button>
     <button class="tab-btn" id="results-tab-btn" onclick="switchTab('results')">Results</button>
     <button class="tab-btn" onclick="switchTab('history')">History</button>
     <button class="tab-btn" onclick="switchTab('uploader')">&#128203; PDF Scanner</button>
@@ -547,6 +557,82 @@ body.mode-advanced .adv-block { display: block !important; }
 <div id="main">
 
   <!-- ══ SEARCH TAB ══════════════════════════════════════ -->
+  <!-- ══════════════ BUILD SEARCH TAB ══════════════ -->
+  <div class="tab-panel" id="tab-build">
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+        <span class="step-num">1</span>
+        <div class="card-label" style="margin-bottom:0">Define your question (PICO)</div>
+      </div>
+      <div class="info-box" style="border-color:#a78bfa44;color:#c4b5fd;background:#13102a">
+        Enter your research question in PICO terms. The assistant drafts concept blocks and search terms; <b>you</b> edit, restructure, and approve every part. Live result counts come from PubMed&rsquo;s server &mdash; never from the AI.
+      </div>
+      <div class="grid2" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div>
+          <label class="pico-lbl" style="color:#f87171">P &mdash; Population / Problem</label>
+          <textarea id="pico-p" rows="2" placeholder="e.g. adult patients undergoing major non-cardiac surgery" style="width:100%;box-sizing:border-box;padding:9px 11px;font-size:13px;border-radius:7px;border:1px solid #334155;background:#0d1220;color:#e2e8f0;resize:vertical"></textarea>
+        </div>
+        <div>
+          <label class="pico-lbl" style="color:#60a5fa">I &mdash; Intervention / Exposure</label>
+          <textarea id="pico-i" rows="2" placeholder="e.g. non-steroidal anti-inflammatory drugs (NSAIDs)" style="width:100%;box-sizing:border-box;padding:9px 11px;font-size:13px;border-radius:7px;border:1px solid #334155;background:#0d1220;color:#e2e8f0;resize:vertical"></textarea>
+        </div>
+        <div>
+          <label class="pico-lbl" style="color:#fbbf24">C &mdash; Comparison <span style="opacity:0.6;font-weight:400">(optional)</span></label>
+          <textarea id="pico-c" rows="2" placeholder="e.g. opioid analgesia or placebo" style="width:100%;box-sizing:border-box;padding:9px 11px;font-size:13px;border-radius:7px;border:1px solid #334155;background:#0d1220;color:#e2e8f0;resize:vertical"></textarea>
+        </div>
+        <div>
+          <label class="pico-lbl" style="color:#4ade80">O &mdash; Outcome</label>
+          <textarea id="pico-o" rows="2" placeholder="e.g. postoperative delirium incidence" style="width:100%;box-sizing:border-box;padding:9px 11px;font-size:13px;border-radius:7px;border:1px solid #334155;background:#0d1220;color:#e2e8f0;resize:vertical"></textarea>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;margin-top:11px;flex-wrap:wrap">
+        <label style="font-size:12px;color:#94a3b8">Study design focus:
+          <select id="pico-design" style="margin-left:6px;padding:5px 9px;font-size:12px;border-radius:6px;background:#0d1220;color:#e2e8f0;border:1px solid #334155">
+            <option value="">Any</option>
+            <option value="rct">RCTs / controlled trials</option>
+            <option value="sr">Systematic reviews / meta-analyses</option>
+            <option value="obs">Observational studies</option>
+            <option value="dx">Diagnostic accuracy</option>
+          </select>
+        </label>
+        <button onclick="buildDraftStrategy()" id="build-draft-btn" style="margin-left:auto;font-size:13px;padding:10px 18px;border-radius:8px;border:none;background:linear-gradient(135deg,#7c3aed,#a78bfa);color:#fff;cursor:pointer;font-weight:650">&#129513; Draft concept blocks &rarr;</button>
+      </div>
+      <div id="build-draft-status" style="margin-top:9px;font-size:12px;min-height:6px"></div>
+    </div>
+
+    <!-- Concept blocks (populated by the agent, edited by the human) -->
+    <div id="build-blocks-card" class="card" style="display:none">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+        <span class="step-num">2</span>
+        <div class="card-label" style="margin-bottom:0">Concept blocks &mdash; edit freely</div>
+      </div>
+      <div class="info-box" style="font-size:11px">Each block is one concept, combined with <b>AND</b>. Terms within a block are combined with <b>OR</b>. Add or remove terms and blocks; click a term to delete it. MeSH terms are tagged <span style="color:#60a5fa">MeSH</span>; free-text <span style="color:#a78bfa">tiab</span>.</div>
+      <div id="build-blocks"></div>
+      <button onclick="addConceptBlock()" style="margin-top:8px;font-size:11px;padding:7px 13px;border-radius:6px;border:1px dashed #475569;background:transparent;color:#94a3b8;cursor:pointer">+ Add concept block</button>
+    </div>
+
+    <!-- Coach feedback -->
+    <div id="build-coach-card" class="card" style="display:none;border-color:#f59e0b33">
+      <div class="card-label" style="color:#fbbf24">&#128172; Methodology notes</div>
+      <div id="build-coach"></div>
+    </div>
+
+    <!-- Live count + assembled query -->
+    <div id="build-count-card" class="card" style="display:none">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+        <span class="step-num">3</span>
+        <div class="card-label" style="margin-bottom:0">Assembled PubMed strategy &amp; live count</div>
+      </div>
+      <div id="build-assembled" style="font-size:11.5px;color:#cbd5e1;font-family:'IBM Plex Mono',monospace;background:#0d1220;border:1px solid #1e293b;border-radius:7px;padding:11px 13px;word-break:break-word;line-height:1.6"></div>
+      <div style="display:flex;align-items:center;gap:14px;margin-top:11px;flex-wrap:wrap">
+        <button onclick="previewBuildCount()" id="build-count-btn" style="font-size:12px;padding:9px 15px;border-radius:7px;border:1px solid #334155;background:#0d1220;color:#7dd3fc;cursor:pointer">&#128202; Preview live count</button>
+        <span id="build-count-result" style="font-size:13px;color:#e2e8f0"></span>
+        <button onclick="sendStrategyToWorkbench()" id="build-send-btn" style="margin-left:auto;font-size:13px;padding:10px 18px;border-radius:8px;border:none;background:#22c55e;color:#04210f;cursor:pointer;font-weight:650;display:none">Send to workbench &rarr;</button>
+      </div>
+      <div style="font-size:10.5px;color:#64748b;margin-top:8px">The count is the true number of PubMed records this strategy retrieves (NCBI History server). Aim for a manageable, comprehensive set &mdash; the coach above suggests adjustments.</div>
+    </div>
+  </div>
+
   <div class="tab-panel active" id="tab-search">
 
     <!-- Step 1: Database Query -->
@@ -2360,7 +2446,7 @@ function switchTab(name) {
   document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.remove('active'); });
   document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
   document.getElementById('tab-' + name).classList.add('active');
-  var map = { search:'Search', results:'Results', history:'History', uploader:'PDF Scanner', projects:'Projects' };
+  var map = { build:'Build Search', search:'Search', results:'Results', history:'History', uploader:'PDF Scanner', projects:'Projects' };
   document.querySelectorAll('.tab-btn').forEach(function(b){
     var label = b.textContent.trim().replace(/\s+/g,' ');
     if (b.textContent.trim() === map[name] || label.indexOf(map[name]) !== -1) b.classList.add('active');
@@ -3071,6 +3157,247 @@ function deriveSecondaryQuery(pubmedQuery) {
 }
 
 // ══════════════════════════════════════════════
+// SEARCH STRATEGY BUILDER (Build tab)
+// PICO -> agent-drafted concept blocks -> human edits -> live PubMed count
+// -> push to workbench. The agent proposes terms & structure; counts are
+// always real (NCBI), and the human approves before anything is searched.
+// ══════════════════════════════════════════════
+var buildBlocks = [];   // [{ concept, terms:[{term, field:'mesh'|'tiab'}] }]
+var buildCoachNotes = [];
+
+function picoInputs() {
+  return {
+    p: (document.getElementById('pico-p').value || '').trim(),
+    i: (document.getElementById('pico-i').value || '').trim(),
+    c: (document.getElementById('pico-c').value || '').trim(),
+    o: (document.getElementById('pico-o').value || '').trim(),
+    design: (document.getElementById('pico-design').value || '')
+  };
+}
+
+async function buildDraftStrategy() {
+  var pico = picoInputs();
+  if (!pico.p && !pico.i && !pico.o) {
+    showToast('Enter at least Population, Intervention, or Outcome', '#f59e0b');
+    return;
+  }
+  if (!hasValidKey()) {
+    showToast('An API key is needed in Settings to draft a strategy', '#f59e0b');
+    return;
+  }
+  var statusEl = document.getElementById('build-draft-status');
+  var btn = document.getElementById('build-draft-btn');
+  statusEl.innerHTML = '<span class="spinner"></span> drafting concept blocks & terms\u2026';
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }
+
+  var designLine = pico.design ? ('\nStudy design focus: ' + pico.design) : '';
+  var sys = 'You are an expert medical librarian and systematic review methodologist. '
+    + 'Given a PICO question, decompose it into CONCEPT BLOCKS for a PubMed search. '
+    + 'Each block is one concept (e.g. the population, the intervention, the outcome). '
+    + 'For each block provide both MeSH terms (controlled vocabulary) and free-text synonyms '
+    + '(with truncation * where helpful). Be comprehensive with synonyms but precise. '
+    + 'Also provide brief METHODOLOGY NOTES flagging any weaknesses (missing concept, '
+    + 'over-reliance on free text, overly narrow terms). Be a constructive coach, not verbose.\n\n'
+    + 'Respond ONLY with JSON, no markdown, in exactly this shape:\n'
+    + '{"blocks":[{"concept":"short label","terms":[{"term":"delirium","field":"mesh"},'
+    + '{"term":"deliri*","field":"tiab"}]}],"notes":["short note","short note"]}';
+
+  var user = 'PICO question:\n'
+    + 'Population: ' + (pico.p || '(none given)') + '\n'
+    + 'Intervention: ' + (pico.i || '(none given)') + '\n'
+    + 'Comparison: ' + (pico.c || '(none given)') + '\n'
+    + 'Outcome: ' + (pico.o || '(none given)') + designLine
+    + '\n\nDraft the concept blocks and methodology notes now.';
+
+  try {
+    var parsed = await callBuilderAgent(sys, user);
+    buildBlocks = (parsed.blocks || []).map(function(b){
+      return { concept: b.concept || 'Concept', terms: (b.terms || []).map(function(t){
+        return { term: t.term || '', field: (t.field === 'mesh' ? 'mesh' : 'tiab') };
+      }).filter(function(t){ return t.term; }) };
+    }).filter(function(b){ return b.terms.length; });
+    buildCoachNotes = parsed.notes || [];
+
+    if (!buildBlocks.length) { statusEl.innerHTML = '<span style="color:#ef4444">No blocks returned \u2014 try rephrasing the PICO.</span>'; return; }
+    statusEl.innerHTML = '<span style="color:#4ade80">\u2713 drafted ' + buildBlocks.length + ' concept blocks \u2014 review and edit below</span>';
+    renderBuildBlocks();
+    renderBuildCoach();
+    document.getElementById('build-blocks-card').style.display = 'block';
+    document.getElementById('build-count-card').style.display = 'block';
+    assembleBuildQuery();
+  } catch(e) {
+    statusEl.innerHTML = '<span style="color:#ef4444">\u2715 ' + esc(e.message) + '</span>';
+  } finally {
+    if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
+  }
+}
+
+// Generic JSON-returning agent call (mirrors callOpenAIWithText's provider routing).
+async function callBuilderAgent(systemPrompt, userPrompt) {
+  var raw = '';
+  if (aiProvider === 'anthropic') {
+    var r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': openAIKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 4000, system: systemPrompt, messages: [{ role: 'user', content: userPrompt }] })
+    });
+    if (!r.ok) { var e1 = await r.json().catch(function(){return {};}); throw new Error('Anthropic ' + r.status + ': ' + ((e1.error && e1.error.message) || 'error')); }
+    var d1 = await r.json();
+    raw = (d1.content && d1.content[0] && d1.content[0].text) || '{}';
+  } else {
+    var r2 = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + openAIKey },
+      body: JSON.stringify({ model: 'gpt-5', max_output_tokens: 4000, reasoning: { effort: 'low' }, input: [{ role: 'user', content: [{ type: 'input_text', text: systemPrompt + '\n\n' + userPrompt }] }] })
+    });
+    if (!r2.ok) { var e2 = await r2.json().catch(function(){return {};}); throw new Error('OpenAI ' + r2.status + ': ' + ((e2.error && e2.error.message) || 'error')); }
+    var d2 = await r2.json();
+    if (d2.output) d2.output.forEach(function(b){ if (b.type==='message' && b.content) b.content.forEach(function(c){ if (c.type==='output_text') raw += c.text; }); });
+    if (!raw) raw = '{}';
+  }
+  raw = raw.replace(/^```json\s*/i,'').replace(/^```\s*/i,'').replace(/\s*```$/,'').trim();
+  return safeParseAgentJson(raw);
+}
+
+function renderBuildBlocks() {
+  var box = document.getElementById('build-blocks');
+  box.innerHTML = buildBlocks.map(function(b, bi) {
+    var terms = b.terms.map(function(t, ti) {
+      var cls = t.field === 'mesh' ? 'cterm-mesh' : 'cterm-tiab';
+      var tag = t.field === 'mesh' ? 'MeSH' : 'tiab';
+      return '<span class="cterm ' + cls + '" onclick="removeBuildTerm(' + bi + ',' + ti + ')" title="click to remove">' +
+        esc(t.term) + ' <span style="opacity:0.6;font-size:9px">' + tag + '</span> &times;</span>';
+    }).join('');
+    return '<div class="cblock">' +
+      '<div class="cblock-head">' +
+        '<input value="' + esc(b.concept) + '" onchange="renameBuildBlock(' + bi + ',this.value)" style="font-size:12px;font-weight:600;background:transparent;border:none;border-bottom:1px solid #334155;color:#e2e8f0;padding:2px 0;flex:1" />' +
+        '<button onclick="removeBuildBlock(' + bi + ')" style="font-size:10px;padding:3px 8px;border-radius:5px;border:1px solid #5b2121;background:#1a0d0d;color:#f87171;cursor:pointer">remove block</button>' +
+      '</div>' +
+      '<div>' + terms + '</div>' +
+      '<div style="display:flex;gap:6px;margin-top:7px">' +
+        '<input id="newterm-' + bi + '" placeholder="add term\u2026" onkeydown="if(event.key===\'Enter\')addBuildTerm(' + bi + ')" style="flex:1;font-size:11px;padding:5px 9px;border-radius:6px;border:1px solid #334155;background:#0d1220;color:#e2e8f0;font-family:\'IBM Plex Mono\',monospace" />' +
+        '<button onclick="addBuildTerm(' + bi + ',\'mesh\')" style="font-size:10px;padding:5px 9px;border-radius:6px;border:1px solid #60a5fa55;background:#1e3a5f33;color:#93c5fd;cursor:pointer">+MeSH</button>' +
+        '<button onclick="addBuildTerm(' + bi + ',\'tiab\')" style="font-size:10px;padding:5px 9px;border-radius:6px;border:1px solid #a78bfa55;background:#2e1f4f33;color:#c4b5fd;cursor:pointer">+tiab</button>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+function renderBuildCoach() {
+  var card = document.getElementById('build-coach-card');
+  var box = document.getElementById('build-coach');
+  if (!buildCoachNotes.length) { card.style.display = 'none'; return; }
+  card.style.display = 'block';
+  box.innerHTML = buildCoachNotes.map(function(n){
+    return '<div style="font-size:12px;color:#cbd5e1;margin-bottom:6px;line-height:1.5">\u2022 ' + esc(n) + '</div>';
+  }).join('');
+}
+
+function removeBuildTerm(bi, ti) { buildBlocks[bi].terms.splice(ti,1); renderBuildBlocks(); assembleBuildQuery(); }
+function removeBuildBlock(bi) { buildBlocks.splice(bi,1); renderBuildBlocks(); assembleBuildQuery(); }
+function renameBuildBlock(bi, v) { buildBlocks[bi].concept = v; }
+function addConceptBlock() { buildBlocks.push({ concept:'New concept', terms:[] }); renderBuildBlocks(); document.getElementById('build-blocks-card').style.display='block'; }
+function addBuildTerm(bi, field) {
+  var inp = document.getElementById('newterm-' + bi);
+  var v = inp ? inp.value.trim() : '';
+  if (!v) { if (field) showToast('Type a term first', '#f59e0b'); return; }
+  buildBlocks[bi].terms.push({ term: v, field: field || 'tiab' });
+  renderBuildBlocks(); assembleBuildQuery();
+}
+
+// Assemble PubMed query: (t1[Mesh] OR t2[tiab] ...) AND (block2) AND ...
+function buildPubmedQuery() {
+  var blockStrs = buildBlocks.map(function(b) {
+    var parts = b.terms.map(function(t) {
+      if (t.field === 'mesh') return '"' + t.term.replace(/\*$/,'') + '"[Mesh]';
+      return t.term + '[tiab]';
+    });
+    return parts.length ? '(' + parts.join(' OR ') + ')' : '';
+  }).filter(Boolean);
+  var q = blockStrs.join(' AND ');
+  var pico = picoInputs();
+  if (pico.design === 'rct') q += ' AND (randomized controlled trial[pt] OR controlled clinical trial[pt] OR randomi*[tiab])';
+  else if (pico.design === 'sr') q += ' AND (systematic review[pt] OR meta-analysis[pt] OR systematic review[tiab] OR meta-analysis[tiab])';
+  else if (pico.design === 'obs') q += ' AND (cohort studies[Mesh] OR case-control studies[Mesh] OR observational study[pt])';
+  else if (pico.design === 'dx') q += ' AND (sensitivity and specificity[Mesh] OR diagnostic accuracy[tiab])';
+  return q;
+}
+
+function assembleBuildQuery() {
+  var q = buildPubmedQuery();
+  var el = document.getElementById('build-assembled');
+  if (el) el.textContent = q || '(add terms to assemble a query)';
+  // counts are stale once the query changes
+  document.getElementById('build-count-result').innerHTML = '';
+  document.getElementById('build-send-btn').style.display = 'none';
+}
+
+async function previewBuildCount() {
+  var q = buildPubmedQuery();
+  if (!q) { showToast('Add some terms first', '#f59e0b'); return; }
+  var resEl = document.getElementById('build-count-result');
+  var btn = document.getElementById('build-count-btn');
+  resEl.innerHTML = '<span class="spinner"></span> querying PubMed\u2026';
+  if (btn) btn.disabled = true;
+  try {
+    var url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&retmax=0&retmode=json&term=' + encodeURIComponent(q);
+    var d = await fetchWithFallback(url).then(function(r){ return r.json(); });
+    var count = parseInt((d.esearchresult && d.esearchresult.count), 10);
+    if (isNaN(count)) throw new Error('PubMed returned no count (check term syntax)');
+    var colour = count === 0 ? '#ef4444' : count > 5000 ? '#f59e0b' : '#4ade80';
+    var advice = count === 0 ? ' \u2014 too narrow; loosen terms or add synonyms'
+               : count > 5000 ? ' \u2014 broad; consider tightening or adding a concept'
+               : ' \u2014 a workable range';
+    resEl.innerHTML = '<b style="color:' + colour + '">' + count.toLocaleString() + '</b> PubMed records<span style="color:#64748b">' + advice + '</span>';
+    document.getElementById('build-send-btn').style.display = 'inline-block';
+  } catch(e) {
+    resEl.innerHTML = '<span style="color:#ef4444">\u2715 ' + esc(e.message) + '</span>';
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// Push the approved strategy into the workbench: PubMed gets the boolean query,
+// the keyword groups get a plain-keyword derivation, Scopus gets its translation.
+function sendStrategyToWorkbench() {
+  var pubmedQ = buildPubmedQuery();
+  if (!pubmedQ) { showToast('Nothing to send', '#f59e0b'); return; }
+
+  // Switch to advanced mode + the Search tab. setSearchMode() itself calls
+  // renderWbPanels(), which REBUILDS the wbq-* inputs from scratch with empty
+  // values — so we must populate AFTER all rendering is done, never before
+  // (the previous order filled the inputs then re-rendered, wiping them).
+  if (typeof setSearchMode === 'function') setSearchMode('advanced');
+  switchTab('search');
+  if (typeof renderWbPanels === 'function') renderWbPanels();
+
+  // Now the inputs exist and are empty — fill them last, and defer one tick so
+  // any layout/active-tab work in switchTab has settled in the DOM.
+  setTimeout(function() {
+    var fills = {
+      pubmed: pubmedQ,
+      epmc:   (WB_GROUPS && WB_GROUPS.epmc)   ? WB_GROUPS.epmc.derive(pubmedQ)   : pubmedQ,
+      scopus: (WB_GROUPS && WB_GROUPS.scopus) ? WB_GROUPS.scopus.derive(pubmedQ) : pubmedQ,
+      keyword:(WB_GROUPS && WB_GROUPS.keyword)? WB_GROUPS.keyword.derive(pubmedQ): pubmedQ
+    };
+    // Persist into state first so re-renders keep the values.
+    Object.keys(fills).forEach(function(k){ wbQueries[k] = fills[k]; });
+    var filled = 0;
+    Object.keys(fills).forEach(function(gid) {
+      var inp = document.getElementById('wbq-' + gid);
+      if (inp) { inp.value = fills[gid]; filled++; }
+    });
+    if (filled) {
+      // Make sure the PubMed tab is the visible one so the user sees the result
+      if (typeof switchWbTab === 'function') switchWbTab('pubmed');
+      showToast('Strategy sent to workbench \u2014 review each database, then run into the pool', '#22c55e');
+    } else {
+      showToast('Switched to workbench \u2014 open the PubMed tab to paste your strategy', '#f59e0b');
+    }
+  }, 60);
+}
+
+// ══════════════════════════════════════════════
 // ADVANCED WORKBENCH — search one database at a time into a shared pool
 // Each database has its own native-syntax input. Running a database fetches
 // its results and stores them as that database's slice of the pool; running
@@ -3078,6 +3405,7 @@ function deriveSecondaryQuery(pubmedQuery) {
 // de-duplicated union of all slices, recomputed on every change.
 // ══════════════════════════════════════════════
 var poolSlices = {};   // dbId -> { query, results[], count, time }
+var wbQueries = {};    // gid -> current query string (survives re-renders)
 var poolMerged = [];   // deduplicated union, ready to screen
 
 var WB_META = {
@@ -3180,7 +3508,9 @@ function renderWbPanels() {
       '<div style="font-size:10px;color:#64748b;margin-bottom:7px;line-height:1.5">' + esc(g.hint) + '</div>' +
       '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
         '<input type="text" id="wbq-' + gid + '" placeholder="enter ' + esc(g.syntax) + ' query"' +
+          ' value="' + esc(wbQueries[gid] || '') + '"' +
           ' style="flex:1;min-width:200px;box-sizing:border-box;padding:11px 13px;font-size:13px;border-radius:7px;border:1px solid #334155;background:#0d1220;color:#e2e8f0;font-family:\'IBM Plex Mono\',monospace"' +
+          ' oninput="wbQueries[\'' + gid + '\']=this.value"' +
           ' onkeydown="if(event.key===\'Enter\') runWbGroup(\'' + gid + '\')" />' +
         (gid !== 'pubmed'
           ? '<button onclick="prefillWb(\'' + gid + '\')" title="Fill from your PubMed strategy, translated to this syntax" style="font-size:11px;padding:9px 13px;border-radius:7px;border:1px solid #334155;background:#0d1220;color:#7dd3fc;cursor:pointer;white-space:nowrap">\u21c4 from PubMed</button>'
@@ -3206,7 +3536,10 @@ function prefillWb(gid) {
 function runWbGroup(gid) {
   var g = WB_GROUPS[gid];
   var inp = document.getElementById('wbq-' + gid);
-  var query = inp ? inp.value.trim() : '';
+  // Prefer the live input, but keep state authoritative so the query persists
+  // across the post-search re-render that refreshes pool badges.
+  var query = (inp ? inp.value.trim() : '') || (wbQueries[gid] || '').trim();
+  if (inp) wbQueries[gid] = query;
   if (!query) { showToast('Enter a query first', '#f59e0b'); return; }
   if (gid === 'scopus' && !scopusApiKey) { showToast('Scopus needs an API key in Settings first', '#f59e0b'); return; }
 
@@ -3472,6 +3805,7 @@ function executeCombo() {
   // Mirror the resolved query into the PubMed workbench input for transparency.
   var pmInput = document.getElementById('wbq-pubmed');
   if (pmInput) pmInput.value = combinedQuery;
+  wbQueries['pubmed'] = combinedQuery; // persist across re-renders
   showToast('Resolving ' + esc(expr) + ' on NCBI History server\u2026', '#3b82f6');
   previewPubmedCombo(historyTerm).then(function(res) {
     if (res.queryKey && res.webEnv) {
