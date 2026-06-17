@@ -3428,11 +3428,11 @@ var WB_GROUPS = {
   epmc:    { title: '\ud83c\udf0d Europe PMC + Cochrane', syntax: 'Europe PMC query',
              hint: 'One Europe PMC\u2013syntax query runs both: Europe PMC directly, and Cochrane (CDSR) with the journal filter added automatically.',
              members: ['europepmc','cochrane'],
-             derive: function(q){ return q; } },
+             derive: function(q){ return pubmedToEuropePMC(q); } },
   scopus:  { title: '\ud83d\udc53 Scopus', syntax: 'Scopus boolean',
              hint: 'Scopus syntax, e.g. TITLE-ABS-KEY(delirium AND postoperative). Needs an API key in Settings; returns up to 25 results per search (Elsevier API limit).',
              members: ['scopus'],
-             derive: function(q){ return deriveSecondaryQuery(q) || q; } },
+             derive: function(q){ var b = deriveSecondaryQuery(q) || q; return b ? 'TITLE-ABS-KEY(' + scopusNegation(b) + ')' : ''; } },
   keyword: { title: '\ud83e\udde0 Keyword engines', syntax: 'plain keywords',
              hint: 'Plain keywords \u2014 no boolean operators or field tags. One query runs Semantic Scholar, OpenAlex, and ClinicalTrials.gov (untick any you don\u2019t want).',
              members: ['semantic','openalex','clinicaltrials'],
@@ -3527,8 +3527,11 @@ function prefillWb(gid) {
              || (document.getElementById('query-input') && document.getElementById('query-input').value.trim())
              || '';
   if (!pubmedQ) { showToast('Enter a PubMed strategy first, then translate from it', '#f59e0b'); return; }
+  var translated = WB_GROUPS[gid].derive(pubmedQ);
   var inp = document.getElementById('wbq-' + gid);
-  if (inp) inp.value = WB_GROUPS[gid].derive(pubmedQ);
+  if (inp) inp.value = translated;
+  wbQueries[gid] = translated;   // keep state in sync (programmatic set skips oninput)
+  showToast('Filled ' + (WB_GROUPS[gid].syntax || gid) + ' from PubMed', '#22c55e');
 }
 
 // Run every (ticked) member of a group with the group's query; each member
@@ -4513,7 +4516,8 @@ function renderPapers() {
         '</div>';
     }
 
-    return '<div class="paper-card" id="card-'+p.pmid+'">' +
+    return '<div class="paper-card'+(p.retracted?' retracted-card':'')+'" id="card-'+p.pmid+'">' +
+      (p.retracted ? retractionBannerHtml(p) : '') +
       '<div class="paper-header">' +
         '<div class="paper-row">' +
           '<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start;flex-shrink:0">' +
@@ -4934,12 +4938,26 @@ function loadScopusKey() {
 }
 
 
+// Scopus uses "AND NOT" for exclusion (a bare "NOT" is a syntax error there).
+// Convert any standalone NOT to AND NOT without producing "AND AND NOT".
+function scopusNegation(q) {
+  if (!q) return q;
+  return q
+    .replace(/\s+NOT\s+/gi, ' AND NOT ')
+    .replace(/\b(AND|OR)\s+AND\s+NOT\b/gi, '$1 NOT');
+}
+
 function fetchScopus(query, maxResults, dateFrom, dateTo) {
   if (!scopusApiKey) return Promise.reject(new Error('No Scopus API key'));
 
-  // Build Scopus query — use TITLE-ABS-KEY for keyword search
-  // Convert plain text query to basic Scopus syntax
-  var scopusQ = 'TITLE-ABS-KEY(' + query + ')';
+  // Build Scopus query.
+  // 1. Scopus negation is "AND NOT", not a bare "NOT".
+  // 2. Only wrap in TITLE-ABS-KEY(...) when the query isn't already field-scoped,
+  //    otherwise a user-supplied (or prefilled) TITLE-ABS-KEY(...) gets double-wrapped
+  //    into TITLE-ABS-KEY(TITLE-ABS-KEY(...)) and fails.
+  var q = scopusNegation((query || '').trim());
+  var alreadyFieldScoped = /[A-Z][A-Z\-]{2,}\s*\(/.test(q);
+  var scopusQ = alreadyFieldScoped ? q : 'TITLE-ABS-KEY(' + q + ')';
   if (dateFrom) scopusQ += ' AND PUBYEAR > ' + (parseInt(dateFrom) - 1);
   if (dateTo)   scopusQ += ' AND PUBYEAR < ' + (parseInt(dateTo)   + 1);
 
@@ -6223,7 +6241,8 @@ function renderProjDetail() {
       ? '<button class="proj-agent-btn" id="proj-agent-btn-' + esc(p.pmid) + '" onclick="runProjPaperAgent(\'' + esc(currentProjectId) + '\',\'' + esc(p.pmid) + '\')">🤖 Run AI Analysis</button> '
       : '';
 
-    return '<div class="proj-paper-card" id="proj-card-' + esc(p.pmid) + '">' +
+    return '<div class="proj-paper-card' + (p.retracted ? ' retracted-card' : '') + '" id="proj-card-' + esc(p.pmid) + '">' +
+      (p.retracted ? retractionBannerHtml(p) : '') +
       '<button class="proj-remove-btn" onclick="removePaperFromProject(\'' + esc(currentProjectId) + '\',\'' + esc(p.pmid) + '\')" title="Remove from project">&#10005; Remove</button>' +
       '<div class="proj-paper-title">' + esc(p.title || '(Untitled)') + '</div>' +
       (meta ? '<div class="proj-paper-meta">' + esc(meta) + '</div>' : '') +
@@ -6478,6 +6497,9 @@ async function runProjPaperAgent(projectId, pmid) {
     p.selectedChecklist = fakePaper.selectedChecklist || p.selectedChecklist;
     p.biasToolUsed     = fakePaper.biasToolUsed || p.biasToolUsed;
     p.score            = fakePaper.score || p.score;
+    p.retracted        = fakePaper.retracted || p.retracted;
+    p.retractionInfo   = fakePaper.retractionInfo || p.retractionInfo;
+    p.retractionChecked = fakePaper.retractionChecked || p.retractionChecked;
     saveProjects();
     showToast('🤖 Analysis complete for "' + (p.title || 'paper').slice(0,40) + '…"', '#a78bfa');
     renderProjDetail(); // re-render to show results
@@ -6736,6 +6758,7 @@ function renderUploaderResults(p, clKey, alsoRob2, title) {
   var BIAS_TOOLS = { ROB2:1, ROBINS2:1, NOS:1, JADAD:1 };
 
   var html = '';
+  if (p.retracted) html += retractionBannerHtml(p);
   clDefs.forEach(function(ck) {
     var cl = CHECKLISTS[ck];
     if (!cl) return;
@@ -6885,6 +6908,20 @@ function renderUploaderChecklistItems(p, ck) {
 // Stored uploader papers by pmid (so we can update live)
 var uploaderPapers = {};
 
+// Pull the first plausible DOI out of free text (e.g. an uploaded PDF's first page).
+// Crossref / Retraction Watch are DOI-keyed, so this lets uploaded PDFs be checked
+// for retraction during AI analysis just like database results are.
+function extractDoiFromText(text) {
+  if (!text) return null;
+  var DOI_RE = /10\.\d{4,9}\/[^\s"'<>)\]}]+/i;
+  // DOIs almost always sit in the header/footer of page 1 — look there first.
+  var m = String(text).slice(0, 4000).match(DOI_RE) || String(text).match(DOI_RE);
+  if (!m) return null;
+  var doi = m[0].replace(/[.,;:]+$/, '').replace(/\)+$/, '').trim();
+  // Validate against the same shape checkRetraction enforces (no spaces, printable).
+  return /^10[.][0-9]{4,}[!-~]+$/.test(doi) ? doi : null;
+}
+
 function runUploaderWithText(text, clKey, alsoRob2, title, studyType) {
   setUploaderStatus('Running checklist…', '#64748b');
   setUploaderProgress(90);
@@ -6893,6 +6930,7 @@ function runUploaderWithText(text, clKey, alsoRob2, title, studyType) {
   var fakePaper = {
     pmid: pmid, title: title, studyType: studyType,
     fullText: text, abstract: text, scanDepth: 'pdf',
+    doi: extractDoiFromText(text) || '',
     checklists: {}, selectedChecklist: clKey,
     authors: [], year: '', journal: '', score: 0,
     scanResults: [], passedCriteria: 0, totalCriteria: 0,
@@ -7177,6 +7215,7 @@ function startAgentAnalysis() {
   }
   throttledQueue(papersWithDoi, 80, function(p) {
     return checkRetraction(p).then(function(info) {
+      p.retractionChecked = true;
       if (info && info.retracted) {
         applyRetractionBadge(p, info);
         agentStats.retracted = (agentStats.retracted || 0) + 1;
@@ -7372,6 +7411,37 @@ function throttledQueue(items, delayMs, asyncFn) {
   });
 }
 
+// Run a single paper through Retraction Watch / Crossref, exactly once, as part
+// of AI analysis. Non-blocking: any network/timeout failure resolves quietly and
+// never stops the analysis. Funnelled through analyseOneWithAgent so it fires for
+// every path — single result, project, PDF viewer, and the bulk queue.
+function ensureRetractionChecked(p) {
+  if (!p || p.retractionChecked || p.retracted || !p.doi) return Promise.resolve();
+  p.retractionChecked = true; // guard against duplicate/concurrent checks for this paper
+  return checkRetraction(p).then(function(info) {
+    if (info && info.retracted) {
+      applyRetractionBadge(p, info);            // sets p.retracted + (if visible) injects banner
+      try { refreshCardChecklist(p); } catch (e) {}
+    }
+  }).catch(function() { /* never block analysis on a retraction-check failure */ });
+}
+
+// Shared banner markup so the results card, project card, and the one-time
+// applyRetractionBadge insert all render identical retraction notices.
+function retractionBannerHtml(p) {
+  var info = p.retractionInfo || {};
+  var rwUrl = info.recordId ? 'https://retractionwatch.com/?s=' + encodeURIComponent(p.title || '') : null;
+  return '<div class="retraction-banner">' +
+    '\u26a0\ufe0f <strong>RETRACTED</strong>' +
+    (info.date ? ' &nbsp;\u00b7&nbsp; ' + esc(info.date) : '') +
+    ' &nbsp;\u00b7&nbsp; <span style="opacity:0.8">Source:</span> ' + esc(info.source || 'Crossref') +
+    (info.reason ? ' &nbsp;\u00b7&nbsp; <span style="opacity:0.8">Reason:</span> ' + esc(info.reason) : '') +
+    (info.noticeDoi
+      ? ' &nbsp;\u00b7&nbsp; <a href="https://doi.org/' + esc(info.noticeDoi) + '" target="_blank" style="color:#fca5a5;text-decoration:underline">Retraction notice \u2197</a>'
+      : (rwUrl ? ' &nbsp;\u00b7&nbsp; <a href="' + rwUrl + '" target="_blank" style="color:#fca5a5;text-decoration:underline">Retraction Watch \u2197</a>' : '')) +
+  '</div>';
+}
+
 function checkRetraction(p) {
   if (!p.doi) return Promise.resolve(null);
   if (!/^10[.][0-9]{4,}[!-~]+$/.test(String(p.doi).trim())) return Promise.resolve(null);
@@ -7428,20 +7498,7 @@ function applyRetractionBadge(p, retractionInfo) {
   var card = document.getElementById('card-' + p.pmid);
   if (!card) return;
   if (!card.querySelector('.retraction-banner')) {
-    var rwUrl = retractionInfo.recordId
-      ? 'https://retractionwatch.com/?s=' + encodeURIComponent(p.title || '')
-      : null;
-    var banner = document.createElement('div');
-    banner.className = 'retraction-banner';
-    banner.innerHTML =
-      '⚠️ <strong>RETRACTED</strong>' +
-      (retractionInfo.date ? ' &nbsp;·&nbsp; ' + retractionInfo.date : '') +
-      ' &nbsp;·&nbsp; <span style="opacity:0.8">Source:</span> ' + retractionInfo.source +
-      (retractionInfo.reason ? ' &nbsp;·&nbsp; <span style="opacity:0.8">Reason:</span> ' + retractionInfo.reason : '') +
-      (retractionInfo.noticeDoi
-        ? ' &nbsp;·&nbsp; <a href="https://doi.org/' + retractionInfo.noticeDoi + '" target="_blank" style="color:#fca5a5;text-decoration:underline">Retraction notice ↗</a>'
-        : (rwUrl ? ' &nbsp;·&nbsp; <a href="' + rwUrl + '" target="_blank" style="color:#fca5a5;text-decoration:underline">Retraction Watch ↗</a>' : ''));
-    card.insertBefore(banner, card.firstChild);
+    card.insertAdjacentHTML('afterbegin', retractionBannerHtml(p));
   }
   card.classList.add('retracted-card');
 }
@@ -7626,6 +7683,7 @@ async function analyseOneWithAgent(p, questionOverride) {
   // in 'agent-processing' (which hides its checklist pill and re-run button).
   var _priorDepth = (p.scanDepth && p.scanDepth !== 'agent-processing') ? p.scanDepth : 'abstract';
   try {
+    await ensureRetractionChecked(p);   // every analysis path also hits Retraction Watch
     return await _analyseOneWithAgentInner(p, questionOverride);
   } catch (err) {
     // If no analysis path succeeded, applyAgentResults never set 'agent'.
