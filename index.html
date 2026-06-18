@@ -521,7 +521,7 @@ body.mode-advanced .adv-block { display: block !important; }
       <div style="font-size:10px;color:#fb923c;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px">Anthropic</div>
       <input type="password" id="anthropic-key-input" placeholder="sk-ant-..." oninput="saveAnthropicKey()" autocomplete="off"
         style="width:100%;box-sizing:border-box;padding:7px 10px;font-size:12px;letter-spacing:0.04em;margin-bottom:4px" />
-      <div style="font-size:11px;color:#4b5563">Claude Sonnet via Messages API. <a href="https://console.anthropic.com/account/keys" target="_blank" style="color:#64748b">console.anthropic.com →</a></div>
+      <div style="font-size:11px;color:#4b5563">Claude Opus 4.8 via Messages API. <a href="https://console.anthropic.com/account/keys" target="_blank" style="color:#64748b">console.anthropic.com →</a></div>
       <!-- OpenAI account (Sign in with ChatGPT) -->
       <div style="font-size:10px;color:#10a37f;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;margin:14px 0 5px">OpenAI Account (Sign in with ChatGPT)</div>
       <input type="text" id="ev-oauth-clientid" placeholder="OAuth client ID (from OpenAI's third-party sign-in program)" oninput="evSaveOauthClientId()" autocomplete="off"
@@ -733,7 +733,8 @@ body.mode-advanced .adv-block { display: block !important; }
           <button class="wb-tab active" data-wbtab="pubmed"  onclick="switchWbTab('pubmed')">&#128300; PubMed</button>
           <button class="wb-tab"        data-wbtab="epmc"    onclick="switchWbTab('epmc')">&#127757; Europe PMC + Cochrane</button>
           <button class="wb-tab"        data-wbtab="scopus"  onclick="switchWbTab('scopus')">&#128083; Scopus</button>
-          <button class="wb-tab"        data-wbtab="keyword" onclick="switchWbTab('keyword')">&#129504; Keyword engines</button>
+          <button class="wb-tab"        data-wbtab="keyword" onclick="switchWbTab('keyword')">&#129504; SemSch + CT.gov</button>
+          <button class="wb-tab"        data-wbtab="openalex" onclick="switchWbTab('openalex')">&#127760; OpenAlex</button>
         </div>
 
         <!-- PubMed panel (includes set-history builder) -->
@@ -765,6 +766,7 @@ body.mode-advanced .adv-block { display: block !important; }
         <div class="wb-panel" id="wbpanel-epmc"><div id="wb-input-epmc"></div></div>
         <div class="wb-panel" id="wbpanel-scopus"><div id="wb-input-scopus"></div></div>
         <div class="wb-panel" id="wbpanel-keyword"><div id="wb-input-keyword"></div></div>
+        <div class="wb-panel" id="wbpanel-openalex"><div id="wb-input-openalex"></div></div>
       </div>
 
       <div class="grid4" style="margin-top:12px">
@@ -934,7 +936,7 @@ body.mode-advanced .adv-block { display: block !important; }
           </label>
           <button class="btn btn-green" onclick="exportCSV()">&#8595; Export CSV</button>
           <button class="btn" id="retraction-check-btn" onclick="runRetractionSweep()" style="background:#7f1d1d;color:#fca5a5;border:1px solid #ef4444;font-size:12px" title="Check all papers against Retraction Watch / Crossref (free, no API key needed)">⚠️ Check Retractions</button>
-          <button class="agent-btn" id="agent-run-btn" onclick="startAgentAnalysis()" disabled title="Add your OpenAI API key in the Search tab to enable">🤖 Agent Analysis</button>
+          <button class="agent-btn" id="agent-run-btn" onclick="startAgentAnalysis()" disabled title="Add your OpenAI or Anthropic API key in Settings to enable">🤖 Agent Analysis</button>
           <button class="btn btn-blue" id="rob2-viz-btn" onclick="showRob2Viz()" style="display:none" title="Generate robvis-style Risk of Bias charts from agent assessments">📊 RoB2 Visualisation</button>
         </div>
         <div id="agent-fetch-note" style="display:none;font-size:11px;color:#f59e0b;margin-top:6px">⏳ Background PDF fetching in progress — you can run the agent now, papers not yet fetched will use abstract only.</div>
@@ -2087,7 +2089,7 @@ function reRankAfterAgent() {
 // ── Single-paper agent analysis (from card button) ────────────────────────────
 async function analyseSinglePaper(pmid) {
   if (!hasValidKey()) {
-    showToast('Add your OpenAI API key in the Search tab first', '#ef4444'); return;
+    showToast('Add your ' + (aiProvider === 'anthropic' ? 'Anthropic' : 'OpenAI') + ' API key in Settings first', '#ef4444'); return;
   }
   var p = papers.find(function(x){ return String(x.pmid) === String(pmid); });
   if (!p) return;
@@ -3029,12 +3031,12 @@ function reconstructQueryString(tokens) {
   }).join(' ').replace(/\(\s+/g, '(').replace(/\s+\)/g, ')').replace(/\s+/g, ' ').trim();
 }
 
-// Reconstruct the NCBI History term: #N -> %23N (URL-encoded '#').
+// Reconstruct the NCBI History term, e.g. "#1 AND (#2 OR #3)". Left RAW here —
+// previewPubmedCombo URL-encodes the whole term once, so '#', spaces and parens
+// all get escaped together. (Pre-encoding only '#' left spaces/parens raw, which
+// is invalid in a URL and could be mangled by a CORS proxy.)
 function reconstructHistoryTerm(tokens) {
-  return tokens.map(function(t) {
-    if (t[0] === '#') return '%23' + t.slice(1);
-    return t;
-  }).join(' ').replace(/\(\s+/g, '(').replace(/\s+\)/g, ')').replace(/\s+/g, ' ').trim();
+  return tokens.join(' ').replace(/\(\s+/g, '(').replace(/\s+\)/g, ')').replace(/\s+/g, ' ').trim();
 }
 
 // Run a primary-bar query against PubMed's History server, creating a new set.
@@ -3066,7 +3068,7 @@ function createPubmedSet(query) {
 function previewPubmedCombo(historyTerm) {
   var url = 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&usehistory=y'
     + '&WebEnv=' + encodeURIComponent(pubmedWebEnv)
-    + '&term=' + historyTerm + '&retmode=json'; // historyTerm already has %23 encoded
+    + '&term=' + encodeURIComponent(historyTerm) + '&retmode=json'; // encode '#', spaces, parens together
   return fetchWithFallback(url).then(function(r){ return r.json(); }).then(function(d){
     var res = d.esearchresult || {};
     return { count: parseInt(res.count, 10) || 0, queryKey: res.querykey, webEnv: res.webenv };
@@ -3174,6 +3176,47 @@ function deriveSecondaryQuery(pubmedQuery) {
 var buildBlocks = [];   // [{ concept, terms:[{term, field:'mesh'|'tiab'}] }]
 var buildCoachNotes = [];
 
+// Generic single-word concepts that retrieve enormous, mostly off-topic sets when used
+// as a bare free-text term (a lone "surgery" matches every surgical paper). They're fine
+// inside a specific phrase ("breast surgery") or as a precise MeSH heading — the flag
+// only fires on a single-word free-text (tiab) term whose stem is one of these.
+var BROAD_CONCEPT_TERMS = {
+  surgery:1, surgical:1, treatment:1, treat:1, therapy:1, therapies:1, therapeutic:1,
+  disease:1, diseases:1, disorder:1, disorders:1, condition:1, conditions:1, syndrome:1,
+  patient:1, patients:1, care:1, management:1, manage:1, procedure:1, procedures:1,
+  intervention:1, interventions:1, outcome:1, outcomes:1, drug:1, drugs:1, medication:1,
+  medications:1, health:1, clinical:1, hospital:1, infection:1, infections:1, cancer:1,
+  pain:1, injury:1, injuries:1, study:1, studies:1, effect:1, effects:1, complication:1,
+  complications:1, prevention:1, diagnosis:1, risk:1, function:1
+};
+
+// Flag a build term as overly broad: a single-word free-text term whose stem (trailing
+// wildcard stripped) is a generic concept. Multi-word phrases and MeSH headings are exempt.
+function isBroadBuildTerm(t) {
+  if (!t || t.field !== 'tiab') return false;
+  var w = (t.term || '').trim();
+  if (/\s/.test(w)) return false;                       // phrases are specific enough
+  var truncated = /[*?]+$/.test(w);
+  var stem = w.replace(/[*?]+$/, '').toLowerCase();
+  if (BROAD_CONCEPT_TERMS[stem]) return true;
+  // A truncated term (surger*, therap*) is broad if its stem prefixes a generic concept.
+  if (truncated && stem.length >= 4) {
+    for (var k in BROAD_CONCEPT_TERMS) { if (k.indexOf(stem) === 0) return true; }
+  }
+  return false;
+}
+
+// Collect "Concept: term" labels for every flagged broad term, for warnings.
+function flaggedBroadBuildTerms() {
+  var hits = [];
+  buildBlocks.forEach(function(b) {
+    (b.terms || []).forEach(function(t) {
+      if (isBroadBuildTerm(t)) hits.push((b.concept || 'concept') + ': ' + t.term);
+    });
+  });
+  return hits;
+}
+
 function picoInputs() {
   return {
     p: (document.getElementById('pico-p').value || '').trim(),
@@ -3222,7 +3265,11 @@ async function buildDraftStrategy() {
     var parsed = await callBuilderAgent(sys, user);
     buildBlocks = (parsed.blocks || []).map(function(b){
       return { concept: b.concept || 'Concept', terms: (b.terms || []).map(function(t){
-        return { term: t.term || '', field: (t.field === 'mesh' ? 'mesh' : 'tiab') };
+        var term = t.term || '';
+        // A MeSH heading can't carry a wildcard; if the model emits one, treat it as
+        // free text so the truncation is honoured rather than silently dropped.
+        var field = (t.field === 'mesh' && term.indexOf('*') === -1) ? 'mesh' : 'tiab';
+        return { term: term, field: field };
       }).filter(function(t){ return t.term; }) };
     }).filter(function(b){ return b.terms.length; });
     buildCoachNotes = parsed.notes || [];
@@ -3248,7 +3295,7 @@ async function callBuilderAgent(systemPrompt, userPrompt) {
     var r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': openAIKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 4000, system: systemPrompt, messages: [{ role: 'user', content: userPrompt }] })
+      body: JSON.stringify({ model: 'claude-opus-4-8', max_tokens: 4000, system: systemPrompt, messages: [{ role: 'user', content: userPrompt }] })
     });
     if (!r.ok) { var e1 = await r.json().catch(function(){return {};}); throw new Error('Anthropic ' + r.status + ': ' + ((e1.error && e1.error.message) || 'error')); }
     var d1 = await r.json();
@@ -3274,8 +3321,14 @@ function renderBuildBlocks() {
     var terms = b.terms.map(function(t, ti) {
       var cls = t.field === 'mesh' ? 'cterm-mesh' : 'cterm-tiab';
       var tag = t.field === 'mesh' ? 'MeSH' : 'tiab';
-      return '<span class="cterm ' + cls + '" onclick="removeBuildTerm(' + bi + ',' + ti + ')" title="click to remove">' +
-        esc(t.term) + ' <span style="opacity:0.6;font-size:9px">' + tag + '</span> &times;</span>';
+      var broad = isBroadBuildTerm(t);
+      var broadStyle = broad ? ' style="border-color:#f59e0b;box-shadow:inset 0 0 0 1px #f59e0b55"' : '';
+      var broadTitle = broad
+        ? 'Very broad single word — matches almost any paper. Make it a specific phrase (e.g. “breast surgery”) or a precise MeSH term. Click to remove.'
+        : 'click to remove';
+      var warn = broad ? '<span style="color:#f59e0b;font-size:10px" title="broad term">⚠ </span>' : '';
+      return '<span class="cterm ' + cls + '"' + broadStyle + ' onclick="removeBuildTerm(' + bi + ',' + ti + ')" title="' + broadTitle + '">' +
+        warn + esc(t.term) + ' <span style="opacity:0.6;font-size:9px">' + tag + '</span> &times;</span>';
     }).join('');
     return '<div class="cblock">' +
       '<div class="cblock-head">' +
@@ -3311,7 +3364,15 @@ function addBuildTerm(bi, field) {
   var inp = document.getElementById('newterm-' + bi);
   var v = inp ? inp.value.trim() : '';
   if (!v) { if (field) showToast('Type a term first', '#f59e0b'); return; }
-  buildBlocks[bi].terms.push({ term: v, field: field || 'tiab' });
+  var f = field || 'tiab';
+  // MeSH is controlled vocabulary — truncation (*) isn't valid and would otherwise be
+  // silently dropped to a non-heading that PubMed then remaps unpredictably. A truncated
+  // term belongs in free text, so route it to [tiab] and tell the user why.
+  if (f === 'mesh' && v.indexOf('*') !== -1) {
+    f = 'tiab';
+    showToast('“' + v + '” has a wildcard — added as free-text (tiab); MeSH headings don’t support truncation', '#f59e0b');
+  }
+  buildBlocks[bi].terms.push({ term: v, field: f });
   renderBuildBlocks(); assembleBuildQuery();
 }
 
@@ -3320,7 +3381,12 @@ function buildPubmedQuery() {
   var blockStrs = buildBlocks.map(function(b) {
     var parts = b.terms.map(function(t) {
       if (t.field === 'mesh') return '"' + t.term.replace(/\*$/,'') + '"[Mesh]';
-      return t.term + '[tiab]';
+      var term = (t.term || '').trim();
+      // Quote multi-word free-text phrases for exact title/abstract matching. Leave
+      // single words and truncated terms (e.g. deliri*) unquoted so PubMed truncation
+      // still fires — phrase + truncation isn't supported inside quotes.
+      if (/\s/.test(term) && term.indexOf('*') === -1) term = '"' + term + '"';
+      return term + '[tiab]';
     });
     return parts.length ? '(' + parts.join(' OR ') + ')' : '';
   }).filter(Boolean);
@@ -3373,6 +3439,14 @@ function sendStrategyToWorkbench() {
   var pubmedQ = buildPubmedQuery();
   if (!pubmedQ) { showToast('Nothing to send', '#f59e0b'); return; }
 
+  // Non-blocking heads-up: broad single-word free-text terms balloon the result set
+  // and pull in off-topic papers (especially on full-text engines). Warn, but still send.
+  var broad = flaggedBroadBuildTerms();
+  if (broad.length) {
+    showToast('⚠ Broad term' + (broad.length > 1 ? 's' : '') + ' — ' + broad.slice(0, 4).join('; ') +
+      (broad.length > 4 ? ' …' : '') + '. Consider a specific phrase or MeSH for tighter results.', '#f59e0b');
+  }
+
   // Switch to advanced mode + the Search tab. setSearchMode() itself calls
   // renderWbPanels(), which REBUILDS the wbq-* inputs from scratch with empty
   // values — so we must populate AFTER all rendering is done, never before
@@ -3388,7 +3462,8 @@ function sendStrategyToWorkbench() {
       pubmed: pubmedQ,
       epmc:   (WB_GROUPS && WB_GROUPS.epmc)   ? WB_GROUPS.epmc.derive(pubmedQ)   : pubmedQ,
       scopus: (WB_GROUPS && WB_GROUPS.scopus) ? WB_GROUPS.scopus.derive(pubmedQ) : pubmedQ,
-      keyword:(WB_GROUPS && WB_GROUPS.keyword)? WB_GROUPS.keyword.derive(pubmedQ): pubmedQ
+      keyword:(WB_GROUPS && WB_GROUPS.keyword)? WB_GROUPS.keyword.derive(pubmedQ): pubmedQ,
+      openalex:(WB_GROUPS && WB_GROUPS.openalex)? WB_GROUPS.openalex.derive(pubmedQ): pubmedQ
     };
     // Persist into state first so re-renders keep the values.
     Object.keys(fills).forEach(function(k){ wbQueries[k] = fills[k]; });
@@ -3443,10 +3518,14 @@ var WB_GROUPS = {
              hint: 'Scopus syntax, e.g. TITLE-ABS-KEY(delirium AND postoperative). Needs an API key in Settings; returns up to 25 results per search (Elsevier API limit).',
              members: ['scopus'],
              derive: function(q){ var b = deriveSecondaryQuery(q) || q; return b ? 'TITLE-ABS-KEY(' + scopusNegation(b) + ')' : ''; } },
-  keyword: { title: '\ud83e\udde0 Keyword engines', syntax: 'plain keywords',
-             hint: 'Plain keywords \u2014 no boolean operators or field tags. One query runs Semantic Scholar, OpenAlex, and ClinicalTrials.gov (untick any you don\u2019t want).',
-             members: ['semantic','openalex','clinicaltrials'],
-             derive: function(q){ return deriveSecondaryQuery(q) || q; } }
+  keyword: { title: '\ud83e\udde0 Semantic Scholar + ClinicalTrials.gov', syntax: 'boolean keywords',
+             hint: 'Boolean keywords (AND/OR/NOT, no field tags). One query runs both \u2014 Semantic Scholar adapts it to its + | - operators, ClinicalTrials.gov runs it as an Essie expression. Untick either to skip.',
+             members: ['semantic','clinicaltrials'],
+             derive: function(q){ return deriveSecondaryQuery(q) || q; } },
+  openalex: { title: '\ud83c\udf10 OpenAlex', syntax: 'ranked keywords',
+             hint: 'OpenAlex relevance search has no Boolean engine \u2014 AND/OR/NOT are ignored and truncation is unsupported. The query is reduced to plain ranked keywords (quoted phrases kept) so what runs matches what you see here.',
+             members: ['openalex'],
+             derive: function(q){ return openAlexSearchTerms(deriveSecondaryQuery(q) || q); } }
 };
 
 var WB_FETCH = {
@@ -3472,7 +3551,9 @@ function getDbQuery(dbId, q, secQ) {
       return q;
     case 'cochrane':
       return q + ' JOURNAL:"Cochrane Database Syst Rev"';
-    default: // semantic, openalex, scopus, clinicaltrials — keyword engines
+    case 'openalex': // no Boolean engine — reduce to plain ranked keywords
+      return openAlexSearchTerms(secQ);
+    default: // semantic, scopus, clinicaltrials — keyword engines
       return secQ;
   }
 }
@@ -3652,8 +3733,8 @@ function logWbSearch(id, query, count, replacing) {
 // ============================================================================
 
 var PROTOCOL_FORMAT = 'evidentum-search-protocol/v1';
-var PROTOCOL_GROUPS = { pubmed:['pubmed'], epmc:['europepmc','cochrane'], scopus:['scopus'], keyword:['semantic','openalex','clinicaltrials'] };
-var PROTOCOL_GROUP_LABEL = { pubmed:'PubMed', epmc:'Europe PMC + Cochrane', scopus:'Scopus', keyword:'Keyword engines' };
+var PROTOCOL_GROUPS = { pubmed:['pubmed'], epmc:['europepmc','cochrane'], scopus:['scopus'], keyword:['semantic','clinicaltrials'], openalex:['openalex'] };
+var PROTOCOL_GROUP_LABEL = { pubmed:'PubMed', epmc:'Europe PMC + Cochrane', scopus:'Scopus', keyword:'Semantic Scholar + ClinicalTrials.gov', openalex:'OpenAlex' };
 var PROTO_BTN = 'font-size:12px;padding:8px 13px;border-radius:7px;border:1px solid #334155;background:#0d1220;color:#cbd5e1;cursor:pointer';
 
 // Pure: assemble the PubMed string from a stored skeleton. Mirrors buildPubmedQuery()
@@ -3663,7 +3744,11 @@ function assemblePubmedFromBlocks(blocks, pico) {
   var blockStrs = (blocks || []).map(function(b) {
     var parts = (b.terms || []).map(function(t) {
       if (t.field === 'mesh') return '"' + t.term.replace(/\*$/,'') + '"[Mesh]';
-      return t.term + '[tiab]';
+      var term = (t.term || '').trim();
+      // Mirror buildPubmedQuery(): quote multi-word free-text phrases, leave single
+      // words and truncated terms unquoted so a frozen protocol reproduces the live query.
+      if (/\s/.test(term) && term.indexOf('*') === -1) term = '"' + term + '"';
+      return term + '[tiab]';
     });
     return parts.length ? '(' + parts.join(' OR ') + ')' : '';
   }).filter(Boolean);
@@ -3681,7 +3766,7 @@ function assemblePubmedFromBlocks(blocks, pico) {
 function assembleProtocolQueries(blocks, pico) {
   var pubmed = assemblePubmedFromBlocks(blocks, pico);
   var out = { pubmed: pubmed };
-  ['epmc','scopus','keyword'].forEach(function(gid){
+  ['epmc','scopus','keyword','openalex'].forEach(function(gid){
     try { out[gid] = WB_GROUPS[gid].derive(pubmed); } catch(e) { out[gid] = pubmed; }
   });
   return out;
@@ -3742,7 +3827,7 @@ function freezeProtocolFromBuild() {
   // string (the AI runs once, at authoring time) instead of the deterministic re-derivation.
   var groupProvenance = { pubmed: { method: 'deterministic' } };
   var anyAuthored = false;
-  ['epmc','scopus','keyword'].forEach(function(gid){
+  ['epmc','scopus','keyword','openalex'].forEach(function(gid){
     var bar = (wbQueries[gid] || '').trim();
     var pv = (typeof wbProvenance !== 'undefined' && wbProvenance[gid]) ? wbProvenance[gid] : null;
     if (bar && pv && (pv.method === 'ai' || pv.method === 'ai-edited' || pv.method === 'manual')) {
@@ -3799,7 +3884,7 @@ function retestProtocol() {
   if (!proj || !proj.searchProtocol) { showToast('Freeze a protocol first', '#f59e0b'); return; }
   var sp = proj.searchProtocol;
   var reassembled = assembleProtocolQueries(sp.blocks, sp.pico);
-  var strategyOk = ['pubmed','epmc','scopus','keyword'].every(function(k){
+  var strategyOk = ['pubmed','epmc','scopus','keyword','openalex'].every(function(k){
     if (!sp.queries[k]) return true;
     var gp = (sp.groupProvenance && sp.groupProvenance[k]) || { method: 'deterministic' };
     if (gp.method && gp.method !== 'deterministic') return true; // AI/manual: frozen string replayed verbatim, not re-derived
@@ -3903,7 +3988,7 @@ function renderProtocolPanel() {
     html += '</div>';
   } else {
     html += '<div style="font-size:10.5px;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Frozen query strings</div>';
-    ['pubmed','epmc','scopus','keyword'].forEach(function(gid){
+    ['pubmed','epmc','scopus','keyword','openalex'].forEach(function(gid){
       if (!sp.queries[gid]) return;
       var gm = (sp.groupProvenance && sp.groupProvenance[gid] && sp.groupProvenance[gid].method) || 'deterministic';
       var badge = (gm === 'ai' || gm === 'ai-edited')
@@ -3944,7 +4029,7 @@ function renderRetestReport(strategyOk, baseline, diff, groupProvenance) {
       ? '<span style="color:#22c55e;font-weight:700">\u2713 byte-identical</span> \u2014 the deterministic strategy re-assembles to exactly the frozen query strings.'
       : '<span style="color:#ef4444;font-weight:700">\u2717 mismatch</span> \u2014 re-assembled strings differ from the frozen protocol.') + '</div>';
   var authored = [];
-  if (groupProvenance) ['epmc','scopus','keyword'].forEach(function(gid){
+  if (groupProvenance) ['epmc','scopus','keyword','openalex'].forEach(function(gid){
     var m = groupProvenance[gid] && groupProvenance[gid].method;
     if (m === 'ai' || m === 'ai-edited') authored.push(PROTOCOL_GROUP_LABEL[gid] + ' (AI)');
     else if (m === 'manual') authored.push(PROTOCOL_GROUP_LABEL[gid] + ' (manual)');
@@ -4240,6 +4325,72 @@ function copyProvenanceText() {
   }
 }
 
+// Europe PMC searches BARE (unscoped) terms across the entire indexed FULL TEXT of
+// open-access articles, not just title/abstract — so an unrelated paper matches just
+// because a word appears somewhere in its body or references. That silently balloons
+// the result set and pulls in off-topic hits (e.g. a prolapse-surgery review surfacing
+// in a breast-surgery search). This wraps any unscoped term/phrase in TITLE_ABS: so
+// matching stays in title+abstract. Field-scoped tokens (TITLE_ABS:, MESH:, JOURNAL:…),
+// Boolean operators, parentheses and [date ranges] are left untouched. Idempotent:
+// re-running on an already-scoped query is a no-op.
+function scopeBareEuropePMCTerms(q) {
+  if (!q) return q;
+  var out = '', i = 0, n = q.length;
+  function afterField() { return /[A-Za-z][A-Za-z_]*:\s*$/.test(out); }
+  while (i < n) {
+    var ch = q[i];
+    if (ch === '[') { var e = q.indexOf(']', i); if (e === -1) e = n - 1; out += q.slice(i, e + 1); i = e + 1; continue; } // [date range] verbatim
+    if (ch === '"') { var end = q.indexOf('"', i + 1); if (end === -1) end = n - 1; var ph = q.slice(i, end + 1);
+                      out += afterField() ? ph : 'TITLE_ABS:' + ph; i = end + 1; continue; }
+    if (ch === '(' || ch === ')') { out += ch; i++; continue; }
+    if (/\s/.test(ch)) { out += ch; i++; continue; }
+    var j = i; while (j < n && !/\s/.test(q[j]) && q[j] !== '(' && q[j] !== ')' && q[j] !== '"' && q[j] !== '[') j++;
+    var tok = q.slice(i, j);
+    if (tok === 'AND' || tok === 'OR' || tok === 'NOT') out += tok;     // operator
+    else if (tok.indexOf(':') !== -1) out += tok;                        // FIELD:value or bare field prefix
+    else if (afterField()) out += tok;                                   // value following a FIELD:
+    else out += 'TITLE_ABS:' + tok;                                      // bare term -> scope to title/abstract
+    i = j;
+  }
+  return out;
+}
+
+// Europe PMC's query parser loses field binding when DIFFERENT field codes are OR-ed
+// together inside one parenthesised group — e.g. (MESH:"Mastectomy" OR TITLE_ABS:mastectom*)
+// silently matches a massive unrelated set (~569k) instead of the union (~35k), so a
+// 4-concept AND search returns hundreds of thousands of off-topic hits. Wrapping EACH
+// scoped clause in its own parentheses — ((MESH:"Mastectomy") OR (TITLE_ABS:mastectom*)) —
+// restores correct behaviour. Quoted phrases and [date ranges] are matched whole; the
+// transform is safe to apply more than once (extra parentheses are harmless).
+function parenEachEuropePMCClause(q) {
+  if (!q) return q;
+  return q.replace(/[A-Za-z][A-Za-z_]*:(?:"[^"]*"|\[[^\]]*\]|[^\s()]+)/g, function(m){ return '(' + m + ')'; });
+}
+
+// Europe PMC only matches a wildcard inside a quoted phrase when the wildcarded token is
+// already a whole word ("block*" works, "pain*" works); a truncated stem ("surg*",
+// "conserv*", "dissect*") makes the WHOLE phrase return zero — so terms like
+// TITLE_ABS:"breast surg*" silently match nothing and recall is lost. EP can't express
+// "phrase where the last word starts with surg", so we keep the complete-word run as an
+// adjacent phrase and AND the wildcard stem as a separate scoped term:
+//   TITLE_ABS:"breast cancer surg*"  ->  (TITLE_ABS:"breast cancer" AND TITLE_ABS:surg*)
+//   TITLE_ABS:"breast surg*"         ->  (TITLE_ABS:breast AND TITLE_ABS:surg*)
+//   TITLE_ABS:"mammoplast*"          ->  TITLE_ABS:mammoplast*   (single token, just unquote)
+// Adjacency is loosened only for the truncated word; within a multi-concept AND search the
+// net effect is recovered recall, not an explosion. Phrases with no wildcard are untouched.
+function fixEuropePMCPhraseWildcards(q) {
+  if (!q) return q;
+  return q.replace(/([A-Za-z][A-Za-z_]*):"([^"]*[*?][^"]*)"/g, function(m, field, phrase) {
+    var tokens = phrase.trim().split(/\s+/);
+    if (tokens.length === 1) return field + ':' + tokens[0];   // single token -> bareword wildcard (valid)
+    var parts = [], buf = [];
+    function flush() { if (buf.length) { parts.push(buf.length > 1 ? field + ':"' + buf.join(' ') + '"' : field + ':' + buf[0]); buf = []; } }
+    tokens.forEach(function(t) { if (/[*?]/.test(t)) { flush(); parts.push(field + ':' + t); } else buf.push(t); });
+    flush();
+    return parts.length > 1 ? '(' + parts.join(' AND ') + ')' : parts[0];
+  });
+}
+
 function pubmedToEuropePMC(query) {
   var tagMap = {
     'tiab': 'TITLE_ABS', 'ti': 'TITLE', 'ab': 'ABSTRACT',
@@ -4253,15 +4404,31 @@ function pubmedToEuropePMC(query) {
     var ep = tagMap[tag.trim().toLowerCase()];
     return ep ? ep + ':"' + phrase + '"' : '"' + phrase + '"';
   });
-  // 2. Single-word terms with field tags: word[field]
-  result = result.replace(/(\w+)\[([^\]]+)\]/g, function(_, term, tag) {
+  // 2. Unquoted terms with a field tag — single OR multi-word: early goal directed therapy[tiab]
+  //    Capture the WHOLE phrase before the tag (stopping at parens, quotes, or an
+  //    UPPERCASE boolean operator) so a sibling term/operator is never swallowed, and
+  //    quote multi-word phrases so they stay field-scoped. Previously only the single
+  //    word before the bracket was scoped, leaking leading words ("early goal directed")
+  //    out as bare, unscoped tokens and ballooning the result set.
+  //    Operators are matched case-sensitively: a lowercase "and"/"or" inside a term
+  //    (e.g. "head and neck") is a literal word, not an operator.
+  var WORD = "\\b(?!(?:AND|OR|NOT)\\b)[A-Za-z0-9][\\w*?'\\-]*";
+  var phraseRe = new RegExp('(' + WORD + '(?:\\s+' + WORD + ')*)\\s*\\[([^\\]]+)\\]', 'g');
+  result = result.replace(phraseRe, function(_, phrase, tag) {
     var ep = tagMap[tag.trim().toLowerCase()];
-    return ep ? ep + ':' + term : term;
+    phrase = phrase.trim();
+    if (!ep) return phrase;                       // unmapped/unknown tag -> bare term
+    return /\s/.test(phrase) ? ep + ':"' + phrase + '"' : ep + ':' + phrase;
   });
   // 3. Strip remaining PubMed-style bracketed tags ONLY (short, no spaces, no colons).
   //    Preserves EuropePMC native ranges like [2020-01-01 TO 3000-12-31].
   result = result.replace(/\[([^\]\s:]{1,20})\]/g, '');
-  return result.replace(/\s+/g, ' ').trim();
+  result = result.replace(/\s+/g, ' ').trim();
+  // Final safety passes: (1) scope any term still left bare so it can't degrade to a
+  // full-text search; (2) rewrite quoted phrases with a truncated-stem wildcard, which
+  // Europe PMC otherwise matches as zero; (3) parenthesise each scoped clause so
+  // mixed-field OR groups don't blow up Europe PMC's parser.
+  return parenEachEuropePMCClause(fixEuropePMCPhraseWildcards(scopeBareEuropePMCTerms(result)));
 }
 
 function fetchEuropePMC(query, maxResults, sourceLabel) {
@@ -4351,17 +4518,32 @@ function fetchEuropePMC(query, maxResults, sourceLabel) {
 // ══════════════════════════════════════════════
 // SEMANTIC SCHOLAR API
 // ══════════════════════════════════════════════
+// Translate a derived keyword boolean query into Semantic Scholar BULK-search
+// syntax. The /paper/search/bulk endpoint matches keywords against title/abstract
+// and supports its own operators: + (AND), | (OR), - (exclude), "phrase", and *
+// wildcards — NOT the words AND/OR/NOT. Previously this stripped the operators and
+// parentheses to a bag of words, which the bulk endpoint then required ALL of
+// (implicit AND) — collapsing any multi-concept strategy to zero matches.
 function sanitiseForS2(query) {
-  return query
-    // Strip PubMed field tags: [tiab], [MeSH Terms], [tw], [pt], etc.
-    .replace(/\[[^\]]*\]/g, ' ')
-    // Strip Boolean operators (case-insensitive, whole-word)
-    .replace(/\b(AND|OR|NOT)\b/g, ' ')
-    // Strip parentheses and quotes
-    .replace(/[()\"]/g, ' ')
-    // Collapse multiple spaces
-    .replace(/\s+/g, ' ')
-    .trim();
+  if (!query) return '';
+  var s = String(query).replace(/\[[^\]]*\]/g, ' ');   // drop any residual field tags
+  s = quoteMultiwordTerms(s);                           // phrase-quote multi-word terms
+  // Boolean words -> bulk operators. Uppercase only: a lowercase "and"/"or" inside
+  // a phrase is a literal word, and multi-word phrases are already quoted above.
+  s = s.replace(/\bAND\s+NOT\b/g, ' - ')                // A AND NOT B -> exclude B
+       .replace(/\bNOT\b/g, ' - ')
+       .replace(/\bAND\b/g, ' + ')
+       .replace(/\bOR\b/g, ' | ');
+  // Tidy: empty groups, doubled/dangling operators, whitespace.
+  s = s.replace(/\(\s*\)/g, ' ')
+       .replace(/\s+/g, ' ')
+       .replace(/([+|])\s*([+|])/g, '$1')
+       .replace(/\(\s*[+|]\s*/g, '(')
+       .replace(/\s*[+|]\s*\)/g, ')')
+       .replace(/^\s*[+|]\s*/, '')
+       .replace(/\s*[+|]\s*$/, '')
+       .replace(/\s+/g, ' ').trim();
+  return s;
 }
 
 function fetchSemanticScholar(query, maxResults, dateFrom, dateTo) {
@@ -4462,11 +4644,30 @@ function fetchSemanticScholar(query, maxResults, dateFrom, dateTo) {
 // ══════════════════════════════════════════════
 // OPENALEX API — free, no key required
 // ══════════════════════════════════════════════
+// OpenAlex /works?search= has NO Boolean engine: AND/OR/NOT are stopwords and are
+// silently dropped, parentheses are ignored, and truncation (*) is unsupported.
+// Passing a Boolean string therefore makes OpenAlex quietly return a differently
+// scoped relevance set — the worst failure mode for a reproducible review. Reduce
+// the query to plain ranked keywords: strip field tags, the uppercase Boolean
+// operators, parentheses and wildcards. Quoted phrases are kept (OpenAlex honours
+// them) and lower-case "and"/"or" inside a phrase (e.g. "head and neck") is left
+// alone, matching the operator handling elsewhere in the app.
+function openAlexSearchTerms(query) {
+  if (!query) return '';
+  var s = String(query);
+  s = s.replace(/\[[^\]]*\]/g, ' ');         // residual field tags
+  s = s.replace(/[()]/g, ' ');               // parentheses are not honoured
+  s = s.replace(/\b(AND|OR|NOT)\b/g, ' ');   // uppercase Boolean operators only
+  s = s.replace(/[*?]/g, '');                // truncation/wildcards unsupported
+  return s.replace(/\s+/g, ' ').trim();
+}
 
 function fetchOpenAlex(query, maxResults, dateFrom, dateTo) {
   var limit = Math.min(maxResults || 50, 200);
-  // OpenAlex uses simple keyword search via /works?search=
-  var url = 'https://api.openalex.org/works?search=' + encodeURIComponent(query) +
+  // OpenAlex uses simple keyword search via /works?search= — Boolean syntax is not
+  // supported, so reduce whatever we were handed to plain ranked keywords first.
+  var terms = openAlexSearchTerms(query);
+  var url = 'https://api.openalex.org/works?search=' + encodeURIComponent(terms) +
     '&per-page=' + limit +
     '&select=id,doi,title,authorships,publication_year,primary_location,type,abstract_inverted_index,cited_by_count,ids,open_access,best_oa_location' +
     '&mailto=evidentum@lab.tool';
@@ -4717,16 +4918,11 @@ function citationBoostScore(p) {
   return Math.round((Math.log10(c + 1) / CITATION_BOOST_NORM) * CITATION_BOOST_MAX);
 }
 
-function getSorted() {
-  var sortBy = document.getElementById('sort-by').value;
-  var filterType = document.getElementById('filter-type').value;
-  var filterScore = parseInt(document.getElementById('filter-score').value);
-
-  return papers.filter(function(p) {
-    if (filterType !== 'All' && p.studyType !== filterType) return false;
-    if (filterScore > 0 && p.score < filterScore) return false;
-    return true;
-  }).sort(function(a, b) {
+// Single source of truth for result ordering. Returns a comparator for the
+// given sort key so the on-screen list (getSorted) and the CSV export stay in
+// lockstep — the export must never silently fall back to a different order.
+function paperSortComparator(sortBy) {
+  return function(a, b) {
     if (sortBy === 'sources') {
       // Cross-database corroboration: found by more databases first.
       var sa = (a.sources||[]).length, sb = (b.sources||[]).length;
@@ -4754,7 +4950,19 @@ function getSorted() {
     if (sortBy === 'date_old') return (parseInt(a.year)||0) - (parseInt(b.year)||0);
     if (sortBy === 'type') return a.studyType < b.studyType ? -1 : 1;
     return 0;
-  });
+  };
+}
+
+function getSorted() {
+  var sortBy = document.getElementById('sort-by').value;
+  var filterType = document.getElementById('filter-type').value;
+  var filterScore = parseInt(document.getElementById('filter-score').value);
+
+  return papers.filter(function(p) {
+    if (filterType !== 'All' && p.studyType !== filterType) return false;
+    if (filterScore > 0 && p.score < filterScore) return false;
+    return true;
+  }).sort(paperSortComparator(sortBy));
 }
 
 function buildChecklistPill(p) {
@@ -5298,6 +5506,13 @@ function fetchScopus(query, maxResults, dateFrom, dateTo) {
   //    otherwise a user-supplied (or prefilled) TITLE-ABS-KEY(...) gets double-wrapped
   //    into TITLE-ABS-KEY(TITLE-ABS-KEY(...)) and fails.
   var q = scopusNegation((query || '').trim());
+  // INDEXTERMS() is not available to standard Scopus API keys — it triggers
+  // "Use of certain field restrictions ... is not allowed for this requestor" (INVALID_INPUT)
+  // and the whole search fails. TITLE-ABS-KEY already covers indexed + author keywords, so
+  // fold any INDEXTERMS(...) group into it: the terms are still searched, the forbidden
+  // field restriction is gone. (Entitled institutional keys lose only INDEXTERMS' extra
+  // precision, which TITLE-ABS-KEY largely subsumes.)
+  q = q.replace(/\bINDEXTERMS\s*\(/gi, 'TITLE-ABS-KEY(');
   // Detect a real Scopus field code immediately before a "(" — but never treat the
   // Boolean operators AND/OR/NOT as field codes (otherwise "concept AND (...)" looks
   // field-scoped and the TITLE-ABS-KEY wrap is wrongly skipped, breaking the search).
@@ -5324,7 +5539,30 @@ function fetchScopus(query, maxResults, dateFrom, dateTo) {
 
   return fetchWithFallback(url).then(function(r) { return r.json(); })
     .then(function(data) {
-      var entries = (data['search-results'] && data['search-results']['entry']) || [];
+      // ── Surface Scopus API errors instead of silently returning zero results ──
+      // When Scopus rejects a query (too long/complex, bad field code, auth/quota), it
+      // replies with a service-error envelope that carries NO search-results. Previously
+      // that fell through to an empty array and looked identical to a genuine "0 hits",
+      // hiding the real cause. Detect the error shapes and throw the message so the
+      // status pill shows what actually went wrong.
+      if (data && data['service-error']) {
+        var se = data['service-error'].status || data['service-error'];
+        throw new Error('Scopus rejected the query: ' + (se.statusText || se.statusCode || JSON.stringify(se)));
+      }
+      if (data && data['error-response']) {
+        var er = data['error-response'];
+        throw new Error('Scopus error: ' + (er['error-message'] || er['error-code'] || 'request rejected'));
+      }
+      var sr = data && data['search-results'];
+      if (!sr) throw new Error('Scopus returned an unexpected response (no search-results) — the query may be too long or malformed');
+      var entries = sr['entry'] || [];
+      // Scopus reports a genuine empty result set as a single entry whose only field is
+      // "error" = "Result set was empty". That is NOT an error — return []. Any OTHER
+      // single-entry error means the query itself was rejected, so surface it.
+      if (entries.length === 1 && entries[0] && entries[0].error && !entries[0]['dc:title']) {
+        if (/empty|no\s*result/i.test(entries[0].error)) return [];
+        throw new Error('Scopus rejected the query: ' + entries[0].error);
+      }
       return entries.filter(function(e) {
         return e && e['dc:title'] && e['dc:title'] !== 'No Results Found';
       }).map(function(e) {
@@ -5375,6 +5613,48 @@ function mapScopusType(subtype) {
 // ══════════════════════════════════════════════
 // CLINICALTRIALS.GOV API (v2 / AACT)
 // ══════════════════════════════════════════════
+
+// Quote multi-word phrases in a keyword boolean string. ClinicalTrials.gov only
+// does exact phrase matching when a term is quoted; unquoted multi-word terms get
+// "relaxed" matching plus UMLS synonym expansion, which balloons the result set
+// with loosely-related trials. Already-quoted spans, single words, operators and
+// parentheses are left untouched.
+function quoteMultiwordTerms(q) {
+  var WORD = "\\b(?!(?:AND|OR|NOT)\\b)[A-Za-z0-9][\\w*?'\\-]*";
+  var multiRe = new RegExp(WORD + '(?:\\s+' + WORD + ')+', 'g'); // 2+ consecutive non-operator words
+  var out = '', i = 0;
+  while (i < q.length) {
+    if (q[i] === '"') {                          // copy quoted spans verbatim
+      var end = q.indexOf('"', i + 1);
+      if (end === -1) { out += q.slice(i); break; }
+      out += q.slice(i, end + 1); i = end + 1;
+    } else {
+      var nq = q.indexOf('"', i);
+      var segEnd = nq === -1 ? q.length : nq;
+      out += q.slice(i, segEnd).replace(multiRe, function(m){ return '"' + m + '"'; });
+      i = segEnd;
+    }
+  }
+  return out;
+}
+
+// Adapt a PubMed-derived keyword query for the ClinicalTrials.gov registry:
+//  1. Drop the trailing study-design/methodology AND-group. Every record here is
+//     already a trial, so design terms ("randomized controlled trial", "cohort
+//     studies"...) add no signal and only pull in loosely-related studies.
+//  2. Quote multi-word phrases so matching is exact rather than relaxed+synonym.
+function clinicalTrialsQuery(raw) {
+  var q = (raw || '').trim();
+  if (!q) return q;
+  var DESIGN = /(randomi|controlled clinical trial|systematic review|meta[- ]?analysis|cohort stud|case[- ]control|observational stud|sensitivity and specificity|diagnostic accuracy)/i;
+  var trailing = q.match(/\s+AND\s+\(([^()]+)\)\s*$/i);
+  if (trailing && DESIGN.test(trailing[1])) {
+    var stripped = q.slice(0, trailing.index).trim();
+    if (stripped) q = stripped;                 // never strip down to nothing
+  }
+  return quoteMultiwordTerms(q);
+}
+
 function fetchClinicalTrials(query, maxResults, dateFrom, dateTo) {
   var limit = Math.min(maxResults || 50, 1000);
 
@@ -5382,7 +5662,7 @@ function fetchClinicalTrials(query, maxResults, dateFrom, dateTo) {
   // IMPORTANT: query.term must appear only ONCE — do not use params.append for it.
   // Date filtering goes in filter.advanced with AREA[]/RANGE[] syntax.
   var params = new URLSearchParams({
-    'query.term': query,
+    'query.term': clinicalTrialsQuery(query),
     'pageSize': String(limit),
     'format': 'json',
     'countTotal': 'true'
@@ -5560,6 +5840,24 @@ function checkAlertForNew(i, btn) {
 // ══════════════════════════════════════════════
 // CSV EXPORT
 // ══════════════════════════════════════════════
+// Human-readable scan depth for export. After agent analysis scanDepth is
+// 'agent', so the actual text the agent read lives in p.agentTextSource —
+// without this, every agent-analysed paper wrongly reads "Abstract only".
+function csvScanDepth(p) {
+  if (p.scanDepth === 'agent') {
+    var src = (p.agentTextSource || '').toLowerCase();
+    if (src.indexOf('pmc') !== -1) return 'AI agent (PMC full text)';
+    if (src.indexOf('pdf') !== -1) return 'AI agent (PDF full text)';
+    if (src.indexOf('full text') !== -1 || src.indexOf('supplementary') !== -1) return 'AI agent (full text)';
+    return 'AI agent (abstract only)';
+  }
+  if (p.scanDepth === 'full') return 'Full text (PMC)';
+  if (p.scanDepth === 'pdf') return 'Full text (PDF)';
+  if (p.scanDepth === 'pdf-blocked') return 'Abstract (PDF unreadable)';
+  if (p.scanDepth === 'no-pdf') return 'Abstract (no PDF found)';
+  return 'Abstract only';
+}
+
 function exportCSV() {
   if (!papers.length) return;
   // Dynamic headers: one column per criterion
@@ -5567,7 +5865,11 @@ function exportCSV() {
   var clHeaders = Object.keys(CHECKLISTS).map(function(k){ return CHECKLISTS[k].short + ' Score %'; });
   var headers = ["PMID","Title","Authors","Year","Journal","DOI","Study Type","Sources","Citations","Criteria Score %","Criteria Passed","Scan Depth"].concat(critHeaders).concat(clHeaders).concat(["Selected Checklist","Manual Tags","Notes","Abstract","PubMed Link","Free Full Text URL","Full Text Source"]);
 
-  var sorted = papers.slice().sort(function(a,b){ return b.score - a.score; });
+  // Export in the same order shown on screen. After agent analysis the active
+  // sort is 'agent_rank', so this exports by agent score — matching the list —
+  // instead of the stale first-pass keyword score.
+  var sortBy = (document.getElementById('sort-by') || {}).value || 'score';
+  var sorted = papers.slice().sort(paperSortComparator(sortBy));
   var rows = sorted.map(function(p) {
     var critCols = scanCriteria.map(function(c, i) {
       if (!p.scanResults || !p.scanResults[i]) return 'N/A';
@@ -5578,13 +5880,13 @@ function exportCSV() {
       return sc !== null ? sc.pct + '%' : '';
     });
     return [
-      p.pmid, p.title, p.authors.join('; '), p.year, p.journal, p.doi, p.studyType,
+      p.pmid, p.title, (Array.isArray(p.authors) ? p.authors.join('; ') : (p.authors || '')), p.year, p.journal, p.doi, p.studyType,
       (p.sources || [p.source || 'PubMed']).join('; '),
       p.citationCount !== null && p.citationCount !== undefined ? p.citationCount : '',
-      p.score, p.passedCriteria + '/' + p.totalCriteria, p.scanDepth === 'full' ? 'Full text (PMC)' : p.scanDepth === 'pdf' ? 'Full text (PDF)' : 'Abstract only'
+      p.score, p.passedCriteria + '/' + p.totalCriteria, csvScanDepth(p)
     ].concat(critCols).concat(clCols).concat([
       p.selectedChecklist ? (CHECKLISTS[p.selectedChecklist] ? CHECKLISTS[p.selectedChecklist].name : '') : '',
-      p.manualTags.join('; '), p.notes, p.abstract,
+      (Array.isArray(p.manualTags) ? p.manualTags.join('; ') : ''), p.notes, p.abstract,
       'https://pubmed.ncbi.nlm.nih.gov/' + p.pmid + '/', p.fullTextUrl||'', p.fullTextSource||''
     ]).map(function(v){ return '"' + String(v||'').replace(/"/g,'""') + '"'; });
   });
@@ -6005,7 +6307,7 @@ async function parseReferencesWithAI(refText) {
     var response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': openAIKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 8000, messages: [{ role: 'user', content: prompt }] })
+      body: JSON.stringify({ model: 'claude-opus-4-8', max_tokens: 8000, messages: [{ role: 'user', content: prompt }] })
     });
     if (!response.ok) { var err = await response.json().catch(function(){ return {}; }); throw new Error('Anthropic ' + response.status + ': ' + ((err.error && err.error.message) || 'unknown')); }
     var data = await response.json();
@@ -6037,7 +6339,7 @@ function rankReferences(refs) {
 async function runReferenceScanner() {
   if (!uploaderFile) { setUploaderStatus('Please select a PDF first.', '#ef4444'); return; }
   if (!hasValidKey()) {
-    setUploaderStatus('An OpenAI API key is required for reference scanning.', '#ef4444');
+    setUploaderStatus('An ' + (aiProvider === 'anthropic' ? 'Anthropic' : 'OpenAI') + ' API key is required for reference scanning.', '#ef4444');
     return;
   }
 
@@ -7414,7 +7716,7 @@ function hasValidKey() {
 }
 
 function activeModel() {
-  return aiProvider === 'anthropic' ? 'claude-sonnet-4-6' : 'gpt-5';
+  return aiProvider === 'anthropic' ? 'claude-opus-4-8' : 'gpt-5';
 }
 
 function setAiProvider(provider) {
@@ -8152,7 +8454,7 @@ async function callOpenAIWithPdfUrl(pdfUrl, prompts) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': openAIKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: 'claude-opus-4-8',
         max_tokens: 4000,
         messages: [{
           role: 'user',
@@ -8225,7 +8527,7 @@ async function callOpenAIWithText(text, prompts, p, textSource) {
         'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: 'claude-opus-4-8',
         max_tokens: 8000,
         system: prompts.systemPrompt,
         messages: [{ role: 'user', content: userPrompt }]
@@ -8951,17 +9253,17 @@ document.addEventListener('DOMContentLoaded', function() {
 // ══════════════════════════════════════════════════════════════════════════
 var wbProvenance = {}; // gid -> { method:'deterministic'|'ai'|'ai-edited'|'manual', model, at, addedTerms[], notes }
 
-function evModelName(){ return aiProvider === 'anthropic' ? 'claude-sonnet-4-6' : 'gpt-5'; }
+function evModelName(){ return aiProvider === 'anthropic' ? 'claude-opus-4-8' : 'gpt-5'; }
 
 // Target-database syntax guidance for the translator.
 function evDbTranslationSpec(gid){
   if (gid === 'epmc') return {
     label: 'Europe PMC + Cochrane',
-    instr: 'Target: Europe PMC query syntax. Use Europe PMC field codes (e.g. TITLE_ABS:"...", MESH:"...", AUTH:"...") with Boolean AND/OR/NOT and parentheses, plus quoted phrases. Map MeSH to Europe PMC MESH: where a clear equivalent exists, otherwise keep as TITLE_ABS free text. Do NOT use PubMed [tag] bracket syntax.'
+    instr: 'Target: Europe PMC query syntax. Use Europe PMC field codes (e.g. TITLE_ABS:"...", MESH:"...", AUTH:"...") with Boolean AND/OR/NOT and parentheses, plus quoted phrases. Map MeSH to Europe PMC MESH: where a clear equivalent exists, otherwise keep as TITLE_ABS free text. CRITICAL: EVERY search term MUST carry a field code (TITLE_ABS: or MESH:). Never emit a bare/unscoped word or phrase — in Europe PMC a bare term searches the entire full body text and floods the results with off-topic papers. Do NOT use PubMed [tag] bracket syntax.'
   };
   if (gid === 'scopus') return {
     label: 'Scopus',
-    instr: 'Target: Scopus advanced search. Field-scope keyword concepts inside TITLE-ABS-KEY( ... ); you may use INDEXTERMS( ... ) for controlled-vocabulary equivalents. Use AND NOT (never a bare NOT) for exclusion; truncation * and quoted phrases as appropriate. Do NOT use PubMed [tag] bracket syntax.'
+    instr: 'Target: Scopus advanced search. Field-scope EVERY keyword concept inside TITLE-ABS-KEY( ... ). Do NOT use INDEXTERMS( ... ) — it is not available to standard Scopus API keys and makes the whole query fail; TITLE-ABS-KEY already covers indexed and author keywords, so put controlled-vocabulary equivalents there too. Use AND NOT (never a bare NOT) for exclusion; truncation * and quoted phrases as appropriate. Do NOT use PubMed [tag] bracket syntax.'
   };
   return {
     label: 'Keyword engines',
@@ -9043,6 +9345,14 @@ async function evAITranslate(gid){
   try {
     var parsed = await callBuilderAgent(sys, user);
     var q = (parsed && parsed.query ? String(parsed.query) : '').trim();
+    // Europe PMC: scope any bare term the model emitted to TITLE_ABS so it can't
+    // silently degrade to a full-text search and drag in off-topic papers. Done
+    // before validation/display so the bar shows exactly what will run.
+    var scopeNote = '';
+    if (gid === 'epmc') {
+      var fixed = parenEachEuropePMCClause(fixEuropePMCPhraseWildcards(scopeBareEuropePMCTerms(q)));
+      if (fixed !== q) { q = fixed; scopeNote = 'normalised for Europe PMC (scoped, phrase wildcards, per-clause parentheses)'; }
+    }
     var v = evValidateTranslatedQuery(q, gid);
     if (!v.ok){
       if (note) note.innerHTML = '<span style="color:#fca5a5">\u2715 AI output rejected (' + esc(v.reason) + ') \u2014 falling back to deterministic</span>';
@@ -9051,10 +9361,12 @@ async function evAITranslate(gid){
     }
     if (inp) inp.value = q;
     wbQueries[gid] = q;
+    var aiNotes = parsed.notes ? String(parsed.notes) : '';
+    if (scopeNote) aiNotes = aiNotes ? (aiNotes + ' \u00b7 ' + scopeNote) : scopeNote;
     wbProvenance[gid] = {
       method: 'ai', model: evModelName(), at: new Date().toISOString(),
       addedTerms: Array.isArray(parsed.added_terms) ? parsed.added_terms.slice(0,30) : [],
-      notes: parsed.notes ? String(parsed.notes) : '', source: pubmedQ
+      notes: aiNotes, source: pubmedQ
     };
     evRenderWbNote(gid);
     showToast('\u2728 AI-translated to ' + spec.label + ' \u2014 review before running', '#a78bfa');
