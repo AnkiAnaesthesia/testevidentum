@@ -2844,21 +2844,29 @@ function deduplicatePapers(pubmedArr, cochraneArr, europePmcArr, semanticArr, op
   }
 
   function tryAdd(p) {
-    // DOI match (most reliable)
-    if (p.doi) {
-      var doi = p.doi.toLowerCase().trim();
-      if (seenDoi[doi]) { mergeIntoBetter(seenDoi[doi], p); return; }
-      seenDoi[doi] = p;
+    var doi      = p.doi ? p.doi.toLowerCase().trim() : '';
+    var pmidKey  = (p.pmid && !p.pmid.toString().startsWith('EP_') && !p.pmid.toString().startsWith('SS_')) ? p.pmid : '';
+    var nt       = normTitle(p.title);
+    var titleKey = nt.length > 20 ? nt : '';
+
+    // Resolve against an already-KEPT record, most reliable identifier first.
+    // Crucially we look up before registering anything, so a record that gets
+    // merged away can never leave a seen-key pointing at a dropped object.
+    var existing = (doi && seenDoi[doi]) || (pmidKey && seenPmid[pmidKey]) || (titleKey && seenTitle[titleKey]) || null;
+    if (existing) {
+      mergeIntoBetter(existing, p);
+      // Back-fill the exact identifiers this record carried onto the survivor,
+      // so later records sharing either ID resolve here too (transitive de-dup).
+      // Title is a fuzzy fallback and is deliberately not aliased.
+      if (doi && !seenDoi[doi]) seenDoi[doi] = existing;
+      if (pmidKey && !seenPmid[pmidKey]) seenPmid[pmidKey] = existing;
+      return;
     }
-    // PMID match
-    if (p.pmid && !p.pmid.toString().startsWith('EP_') && !p.pmid.toString().startsWith('SS_')) {
-      if (seenPmid[p.pmid]) { mergeIntoBetter(seenPmid[p.pmid], p); return; }
-      seenPmid[p.pmid] = p;
-    }
-    // Fuzzy title match
-    var nt = normTitle(p.title);
-    if (nt.length > 20 && seenTitle[nt]) { mergeIntoBetter(seenTitle[nt], p); return; }
-    if (nt.length > 20) seenTitle[nt] = p;
+
+    // New record — register every key it has so later duplicates resolve to it.
+    if (doi) seenDoi[doi] = p;
+    if (pmidKey) seenPmid[pmidKey] = p;
+    if (titleKey) seenTitle[titleKey] = p;
 
     p.sources = p.sources || [p.source];
     out.push(p);
@@ -3730,6 +3738,21 @@ function freezeProtocolFromBuild() {
   var pico = picoInputs();
   var blocks = JSON.parse(JSON.stringify(buildBlocks)); // deep, immutable copy
   var queries = assembleProtocolQueries(blocks, pico);
+  // If a group was AI-translated or hand-edited on the workbench, freeze THAT exact
+  // string (the AI runs once, at authoring time) instead of the deterministic re-derivation.
+  var groupProvenance = { pubmed: { method: 'deterministic' } };
+  var anyAuthored = false;
+  ['epmc','scopus','keyword'].forEach(function(gid){
+    var bar = (wbQueries[gid] || '').trim();
+    var pv = (typeof wbProvenance !== 'undefined' && wbProvenance[gid]) ? wbProvenance[gid] : null;
+    if (bar && pv && (pv.method === 'ai' || pv.method === 'ai-edited' || pv.method === 'manual')) {
+      queries[gid] = bar;
+      groupProvenance[gid] = { method: pv.method, model: pv.model || '', at: pv.at || '', addedTerms: pv.addedTerms || [], notes: pv.notes || '' };
+      if (pv.method !== 'manual') anyAuthored = true;
+    } else {
+      groupProvenance[gid] = { method: 'deterministic' };
+    }
+  });
   var prevVersion = (proj.searchProtocol && proj.searchProtocol.version) || 0;
   proj.protocolVersions = proj.protocolVersions || [];
   if (proj.searchProtocol) proj.protocolVersions.push(proj.searchProtocol); // archive prior version
@@ -3740,7 +3763,8 @@ function freezeProtocolFromBuild() {
     pico: pico,
     blocks: blocks,
     queries: queries,
-    provenance: { translator: 'deterministic', model: '', promptVersion: 'regex-v1' }
+    groupProvenance: groupProvenance,
+    provenance: { translator: anyAuthored ? 'ai-assisted' : 'deterministic', model: anyAuthored ? evModelName() : '', promptVersion: anyAuthored ? 'ai-v1' : 'regex-v1' }
   };
   saveProjects();
   showToast('\ud83d\udd12 Frozen protocol v' + proj.searchProtocol.version + ' on "' + proj.name + '"', '#22c55e');
@@ -3775,14 +3799,19 @@ function retestProtocol() {
   if (!proj || !proj.searchProtocol) { showToast('Freeze a protocol first', '#f59e0b'); return; }
   var sp = proj.searchProtocol;
   var reassembled = assembleProtocolQueries(sp.blocks, sp.pico);
-  var strategyOk = Object.keys(sp.queries).every(function(k){ return reassembled[k] === sp.queries[k]; });
+  var strategyOk = ['pubmed','epmc','scopus','keyword'].every(function(k){
+    if (!sp.queries[k]) return true;
+    var gp = (sp.groupProvenance && sp.groupProvenance[k]) || { method: 'deterministic' };
+    if (gp.method && gp.method !== 'deterministic') return true; // AI/manual: frozen string replayed verbatim, not re-derived
+    return reassembled[k] === sp.queries[k];
+  });
   var baseline = (proj.runs && proj.runs.length) ? proj.runs[proj.runs.length-1] : null;
   setProtocolStatus('<span class="spinner"></span> re-testing\u2026');
   var maxResults = parseInt((document.getElementById('max-results')||{}).value) || 50;
   executeProtocol(sp.queries, maxResults).then(function(perDb){
     var diff = diffSnapshots(baseline ? baseline.results : null, perDb);
     setProtocolStatus('');
-    renderRetestReport(strategyOk, baseline, diff);
+    renderRetestReport(strategyOk, baseline, diff, sp.groupProvenance);
   });
 }
 
@@ -3876,7 +3905,11 @@ function renderProtocolPanel() {
     html += '<div style="font-size:10.5px;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">Frozen query strings</div>';
     ['pubmed','epmc','scopus','keyword'].forEach(function(gid){
       if (!sp.queries[gid]) return;
-      html += '<div style="margin-bottom:8px"><div style="font-size:11px;color:#7dd3fc;margin-bottom:2px">' + PROTOCOL_GROUP_LABEL[gid] + '</div>';
+      var gm = (sp.groupProvenance && sp.groupProvenance[gid] && sp.groupProvenance[gid].method) || 'deterministic';
+      var badge = (gm === 'ai' || gm === 'ai-edited')
+        ? ' <span style="font-size:9px;color:#a78bfa;border:1px solid #a78bfa55;border-radius:4px;padding:0 5px">\u2728 ' + (gm === 'ai-edited' ? 'AI, edited' : 'AI') + '</span>'
+        : (gm === 'manual' ? ' <span style="font-size:9px;color:#fbbf24;border:1px solid #fbbf2455;border-radius:4px;padding:0 5px">manual</span>' : '');
+      html += '<div style="margin-bottom:8px"><div style="font-size:11px;color:#7dd3fc;margin-bottom:2px">' + PROTOCOL_GROUP_LABEL[gid] + badge + '</div>';
       html += '<div style="font-family:\'IBM Plex Mono\',monospace;font-size:11px;color:#cbd5e1;background:#0d1220;border:1px solid #1e293b;border-radius:6px;padding:7px 9px;word-break:break-word;line-height:1.55">' + esc(sp.queries[gid]) + '</div></div>';
     });
 
@@ -3901,15 +3934,22 @@ function renderProtocolPanel() {
   card.innerHTML = html;
 }
 
-function renderRetestReport(strategyOk, baseline, diff) {
+function renderRetestReport(strategyOk, baseline, diff, groupProvenance) {
   var el = document.getElementById('retest-report');
   if (!el) return;
   var html = '<div style="background:#0d1220;border:1px solid #1e293b;border-radius:8px;padding:12px 14px">';
   html += '<div style="font-weight:700;color:#f1f5f9;margin-bottom:8px">\ud83d\udd01 Reproducibility report</div>';
   html += '<div style="font-size:13px;margin-bottom:10px;line-height:1.5">Strategy <span style="color:#64748b">(offline, deterministic)</span>: ' +
     (strategyOk
-      ? '<span style="color:#22c55e;font-weight:700">\u2713 byte-identical</span> \u2014 the strategy re-assembles to exactly the frozen query strings.'
+      ? '<span style="color:#22c55e;font-weight:700">\u2713 byte-identical</span> \u2014 the deterministic strategy re-assembles to exactly the frozen query strings.'
       : '<span style="color:#ef4444;font-weight:700">\u2717 mismatch</span> \u2014 re-assembled strings differ from the frozen protocol.') + '</div>';
+  var authored = [];
+  if (groupProvenance) ['epmc','scopus','keyword'].forEach(function(gid){
+    var m = groupProvenance[gid] && groupProvenance[gid].method;
+    if (m === 'ai' || m === 'ai-edited') authored.push(PROTOCOL_GROUP_LABEL[gid] + ' (AI)');
+    else if (m === 'manual') authored.push(PROTOCOL_GROUP_LABEL[gid] + ' (manual)');
+  });
+  if (authored.length) html += '<div style="font-size:11.5px;color:#c4b5fd;margin-bottom:10px;line-height:1.5">\u2728 ' + esc(authored.join(', ')) + ' were authored at freeze time and are replayed from the stored string verbatim (the AI is not re-run) \u2014 reproducible by record, not by re-derivation.</div>';
   if (!baseline) {
     html += '<div style="font-size:12.5px;color:#94a3b8">No baseline snapshot yet \u2014 capture a run, then re-test later to measure drift.</div>';
   } else {
@@ -4828,7 +4868,7 @@ function renderPapers() {
           '</div>' +
           '<div style="flex:1;min-width:0">' +
             '<div class="paper-title-link" onclick="window.open(\''+(p.nctId ? 'https://clinicaltrials.gov/study/'+p.nctId : p.pmid && !String(p.pmid).startsWith('EP_') && !String(p.pmid).startsWith('SS_') && !String(p.pmid).startsWith('CT_') ? 'https://pubmed.ncbi.nlm.nih.gov/'+p.pmid+'/' : (safeDoi(p.doi)||'#'))+'\',\'_blank\')">'+esc(p.title)+'</div>' +
-            '<div class="paper-meta">' + esc(authorStr) + ' &middot; ' + esc(p.journal) + ' &middot; ' + esc(p.year) + (safeDoi(p.doi) ? ' &middot; <a href="' + safeDoi(p.doi) + '" target="_blank" style="color:#374151">DOI</a>' : '') +'</div>' +
+            '<div class="paper-meta">' + esc(authorStr) + ' &middot; ' + esc(p.journal) + ' &middot; ' + esc(p.year) + (safeDoi(p.doi) ? ' &middot; <a href="' + esc(safeDoi(p.doi)) + '" target="_blank" style="color:#374151">DOI</a>' : '') +'</div>' +
             '<div style="margin-top:4px;display:flex;align-items:center;gap:5px;flex-wrap:wrap">' +
               (p.scanDepth==='full' ? '<span class="depth-badge depth-full" id="db-'+p.pmid+'">&#9670; Full text scanned</span>' :
                p.scanDepth==='pdf' ? '<span class="depth-badge depth-pdf" id="db-'+p.pmid+'">&#9670; PDF scanned</span>' :
@@ -4846,7 +4886,7 @@ function renderPapers() {
                 }).join('');
               })() +
             '</div>' +
-            '<div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span id="ft-'+p.pmid+'" class="pdf-checking">'+(p.nctId ? '' : p.doi ? '&#8635; checking for free PDF…' : '')+'</span>'+(p.nctId ? '<a class="pdf-btn" href="https://clinicaltrials.gov/study/'+(/^NCT\d+$/i.test(p.nctId)?p.nctId:'')+'" target="_blank" style="border-color:#f47256;background:#1f100a;color:#fda57d">&#129514; View on ClinicalTrials.gov</a>' : p.fullTextUrl ? '<a class="pdf-btn" href="'+safeUrl(p.fullTextUrl)+'" target="_blank">&#128196; Free PDF <span style="font-size:9px;opacity:0.7">('+p.fullTextSource+')</span></a>' : '')+buildLibkeyLink(p)+'</div>' +
+            '<div style="margin-top:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span id="ft-'+p.pmid+'" class="pdf-checking">'+(p.nctId ? '' : p.doi ? '&#8635; checking for free PDF…' : '')+'</span>'+(p.nctId ? '<a class="pdf-btn" href="https://clinicaltrials.gov/study/'+(/^NCT\d+$/i.test(p.nctId)?p.nctId:'')+'" target="_blank" style="border-color:#f47256;background:#1f100a;color:#fda57d">&#129514; View on ClinicalTrials.gov</a>' : p.fullTextUrl ? '<a class="pdf-btn" href="'+esc(safeUrl(p.fullTextUrl))+'" target="_blank">&#128196; Free PDF <span style="font-size:9px;opacity:0.7">('+esc(p.fullTextSource)+')</span></a>' : '')+buildLibkeyLink(p)+'</div>' +
             (hideCriteria ? '' : '<div class="scan-row">'+chipHtml+'</div>') +
           '</div>' +
           (hideCriteria
@@ -5058,7 +5098,7 @@ function renderRelatedPanel(panel, items, title, mode) {
       if ((item.authors||[]).length > 3) authorStr += ' et al.';
       var cites = item.citationCount !== null && item.citationCount !== undefined ? ' · ' + item.citationCount.toLocaleString() + ' citations' : '';
       return '<div class="related-item">' +
-        '<div class="related-item-title" onclick="window.open(\'' + url + '\',\'_blank\')">' + esc(item.title || 'Untitled') + '</div>' +
+        '<a class="related-item-title" href="' + esc(safeUrl(url)) + '" target="_blank" rel="noopener" style="text-decoration:none;display:block">' + esc(item.title || 'Untitled') + '</a>' +
         '<div class="related-item-meta">' + [esc(authorStr), esc(item.year), esc((item.journal && item.journal.name) || '')].filter(Boolean).join(' · ') + esc(cites) + '</div>' +
       '</div>';
     }).join('');
@@ -5850,7 +5890,7 @@ function fetchFullTextLinks() {
       p.fullTextSource = result ? result.source : null;
       if (!el) return;
       if (result) {
-        el.innerHTML = '<a class="pdf-btn" href="' + result.url + '" target="_blank">&#128196; Free PDF <span style="font-size:9px;opacity:0.7">(' + result.source + ')</span></a>';
+        el.innerHTML = '<a class="pdf-btn" href="' + esc(safeUrl(result.url)) + '" target="_blank">&#128196; Free PDF <span style="font-size:9px;opacity:0.7">(' + esc(result.source) + ')</span></a>';
         // Option C: do NOT eagerly fetch/parse the PDF here — that caused tab
         // crashes on large searches (100+ concurrent PDF.js loads in memory).
         // Heavy extraction is now deferred to (a) agent run, or (b) card expand.
@@ -7540,10 +7580,10 @@ function startAgentAnalysis() {
             '</div>' +
             '<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:6px;align-items:center">' +
               '<span style="background:#7f1d1d;color:#fca5a5;padding:1px 7px;border-radius:10px;font-size:10px;font-weight:700">RETRACTED</span>' +
-              (info.date ? '<span style="color:#9ca3af;font-size:11px">📅 ' + info.date + '</span>' : '') +
-              '<span style="color:#9ca3af;font-size:11px">🔍 ' + info.source + '</span>' +
+              (info.date ? '<span style="color:#9ca3af;font-size:11px">📅 ' + esc(info.date) + '</span>' : '') +
+              '<span style="color:#9ca3af;font-size:11px">🔍 ' + esc(info.source || 'Crossref') + '</span>' +
               (info.reason ? '<span style="color:#fbbf24;font-size:11px">Reason: ' + esc(info.reason) + '</span>' : '') +
-              (info.noticeDoi ? (safeDoi(info.noticeDoi) ? '<a href="' + safeDoi(info.noticeDoi) + '" target="_blank" style="color:#f87171;font-size:11px;text-decoration:underline">Retraction notice ↗</a>' : '') : '') +
+              (info.noticeDoi ? (safeDoi(info.noticeDoi) ? '<a href="' + esc(safeDoi(info.noticeDoi)) + '" target="_blank" style="color:#f87171;font-size:11px;text-decoration:underline">Retraction notice ↗</a>' : '') : '') +
             '</div>';
           list.appendChild(item);
         }
@@ -7854,13 +7894,13 @@ function runRetractionSweep() {
             '</div>' +
             '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px">' +
               '<span style="background:#991b1b;color:#fca5a5;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:0.05em">RETRACTED</span>' +
-              (info.date   ? '<span style="color:#9ca3af;font-size:11px">📅 ' + info.date + '</span>' : '') +
-              '<span style="color:#9ca3af;font-size:11px">🔍 ' + info.source + '</span>' +
+              (info.date   ? '<span style="color:#9ca3af;font-size:11px">📅 ' + esc(info.date) + '</span>' : '') +
+              '<span style="color:#9ca3af;font-size:11px">🔍 ' + esc(info.source || 'Crossref') + '</span>' +
               (info.reason ? '<span style="color:#fbbf24;font-size:11px;max-width:400px">Reason: ' + esc(info.reason) + '</span>' : '') +
               (info.noticeDoi
-                ? (safeDoi(info.noticeDoi) ? '<a href="' + safeDoi(info.noticeDoi) + '" target="_blank" style="color:#f87171;font-size:11px;text-decoration:underline">Retraction notice ↗</a>' : '')
+                ? (safeDoi(info.noticeDoi) ? '<a href="' + esc(safeDoi(info.noticeDoi)) + '" target="_blank" style="color:#f87171;font-size:11px;text-decoration:underline">Retraction notice ↗</a>' : '')
                 : '<a href="https://retractionwatch.com/?s=' + encodeURIComponent((p.title||'').slice(0,60)) + '" target="_blank" style="color:#f87171;font-size:11px;text-decoration:underline">Search Retraction Watch ↗</a>') +
-              (p.doi ? '<a href="https://doi.org/' + p.doi + '" target="_blank" style="color:#6b7280;font-size:11px">DOI ↗</a>' : '') +
+              (safeDoi(p.doi) ? '<a href="' + esc(safeDoi(p.doi)) + '" target="_blank" style="color:#6b7280;font-size:11px">DOI ↗</a>' : '') +
             '</div>';
           list.appendChild(item);
         }
